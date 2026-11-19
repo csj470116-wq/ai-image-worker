@@ -256,6 +256,25 @@ const CONFIG = {
   },
   
   PROVIDERS: {
+    workersai: {
+      name: "Workers AI (FLUX.1 Schnell)",
+      endpoint: "@cf/black-forest-labs/flux-1-schnell",
+      type: "workers_ai",
+      enabled: true,
+      default: true,
+      description: "Cloudflare Workers AI에 내장된 FLUX.1 Schnell 모델 (API 키 불필요, Apache-2.0)",
+      features: {
+        private_mode: true, custom_size: true, seed_control: true, negative_prompt: false,
+        enhance: false, nologo: true, style_presets: true, auto_hd: true, quality_modes: false,
+        auto_translate: false, reference_images: false, image_to_image: false,
+        batch_generation: false, api_key_auth: false
+      },
+      models: [
+        { id: "flux-1-schnell", name: "FLUX.1 Schnell ⚡", confirmed: true, category: "flux", description: "12B FLUX Schnell, 초고속, 무료 (Apache-2.0)", max_size: 2048, pricing: { image_price: 0, currency: "free" } }
+      ],
+      rate_limit: null,
+      max_size: { width: 1024, height: 1024 }
+    },
     pollinations: {
       name: "Pollinations.ai",
       endpoint: "https://gen.pollinations.ai",
@@ -309,7 +328,7 @@ const CONFIG = {
     }
   },
   
-  DEFAULT_PROVIDER: "pollinations",
+  DEFAULT_PROVIDER: "workersai",
   
   STYLE_PRESETS: mergedStyles.styles,
   STYLE_CATEGORIES: mergedStyles.categories,
@@ -584,6 +603,14 @@ class MetricsCollector {
   }
   
   // Record a request
+  trimOldest(mapObj, maxKeys) {
+    const keys = Object.keys(mapObj);
+    if (keys.length <= maxKeys) return;
+    keys.sort((a, b) => mapObj[a] - mapObj[b]);
+    const remove = keys.length - maxKeys;
+    for (let i = 0; i < remove; i++) delete mapObj[keys[i]];
+  }
+
   recordRequest(provider, model, params = {}, userAgent = '', ipAddress = '') {
     this.requests++;
     const timestamp = Date.now();
@@ -637,6 +664,10 @@ class MetricsCollector {
     }
     this.dailyStats[dayKey].requests++;
     
+    this.trimOldest(this.modelUsage, 200);
+    this.trimOldest(this.userAgents, 200);
+    this.trimOldest(this.ipAddresses, 200);
+
     // Keep only recent metrics (last 1000 entries)
     if (this.performanceMetrics.length > 1000) {
       this.performanceMetrics = this.performanceMetrics.slice(-500);
@@ -1333,15 +1364,25 @@ class EnhancedRateLimiter {
     const ipCheck = await this.checkIPList(ip);
     if (ipCheck) return ipCheck;
     
-    if (!this.KV) {
-      console.warn("⚠️ FLUX_KV 未绑定，跳过限制");
-      return { allowed: true };
-    }
-    
     // 获取针对特定IP/模型的限制配置
     const limitConfig = await this.getRateLimitConfig(ip, model);
     const windowSize = limitConfig.window;
     const maxRequests = limitConfig.requests;
+
+    // 内存 슬라이딩 윈도우 폴백（KV를 사용할 수 없을 때）
+    if (!this.KV) {
+      if (!this._memLimits) this._memLimits = new Map();
+      const memKey = model ? `limit:${model}:${ip}` : `nano_limit:${ip}`;
+      const nowTs = Date.now();
+      let arr = this._memLimits.get(memKey) || [];
+      arr = arr.filter(ts => nowTs - ts < windowSize);
+      if (arr.length >= maxRequests) {
+        return { allowed: false, reason: `🔒 速率限制！已达到 ${maxRequests}/${windowSize / 3600000}小时的限制。`, remaining: 0, limit: maxRequests, windowMs: windowSize };
+      }
+      arr.push(nowTs);
+      this._memLimits.set(memKey, arr);
+      return { allowed: true, remaining: maxRequests - arr.length, limit: maxRequests, windowMs: windowSize };
+    }
     
     // 为不同的模型使用不同的键
     const key = model ? `limit:${model}:${ip}` : `nano_limit:${ip}`;
@@ -1378,8 +1419,17 @@ class EnhancedRateLimiter {
       };
     } catch (err) {
       console.error("KV Rate Limit Error:", err);
-      // 发生错误时，默认允许请求，以避免因缓存问题导致服务不可用
-      return { allowed: true, reason: "Rate limit check failed, allowing request" };
+      // KV 장애 시에도 인메모리 폴백으로 제한 유지 (fail-closed)
+      if (!this._memLimits) this._memLimits = new Map();
+      const nowTs = Date.now();
+      let arr = this._memLimits.get(key) || [];
+      arr = arr.filter(ts => nowTs - ts < windowSize);
+      if (arr.length >= maxRequests) {
+        return { allowed: false, reason: `🔒 速率限制！已达到 ${maxRequests}/${windowSize / 3600000}小时的限制。`, remaining: 0, limit: maxRequests, windowMs: windowSize };
+      }
+      arr.push(nowTs);
+      this._memLimits.set(key, arr);
+      return { allowed: true, remaining: maxRequests - arr.length, limit: maxRequests, windowMs: windowSize };
     }
   }
   
@@ -1643,6 +1693,33 @@ class StyleProcessor {
 
 // 新增：智能缓存管理器
 // 增强型多层缓存管理器
+function bufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64) {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function decodeBase64ImageEntry(entry) {
+  const v = entry && entry.value;
+  if (v && v.imageDataEncoding === 'base64' && typeof v.imageData === 'string') {
+    entry.value = Object.assign({}, v, {
+      imageData: base64ToArrayBuffer(v.imageData),
+      imageDataEncoding: undefined
+    });
+  }
+}
+
 class SmartCacheManager {
   constructor(env) {
     this.env = env;
@@ -1794,6 +1871,7 @@ class SmartCacheManager {
           const kvData = await this.kvCache.get(key);
           if (kvData) {
             const parsedData = JSON.parse(kvData);
+            decodeBase64ImageEntry(parsedData);
             if (!this.isExpired(parsedData.timestamp, parsedData.ttl)) {
               // 将数据提升到内存缓存
               this.memoryCache.set(key, {
@@ -1833,6 +1911,7 @@ class SmartCacheManager {
             if (r2Data) {
               const textData = await r2Data.text();
               const parsedData = JSON.parse(textData);
+              decodeBase64ImageEntry(parsedData);
               
               if (!this.isExpired(parsedData.timestamp, parsedData.ttl)) {
                 // 将数据提升到内存缓存
@@ -1878,8 +1957,11 @@ class SmartCacheManager {
     if (!this.cacheEnabled) return;
     
     try {
+      const serializedValue = (value && value.imageData && value.imageData instanceof ArrayBuffer)
+        ? Object.assign({}, value, { imageData: bufferToBase64(value.imageData), imageDataEncoding: 'base64' })
+        : value;
       const cacheEntry = {
-        value: value,
+        value: serializedValue,
         timestamp: Date.now(),
         ttl: ttl
       };
@@ -2717,6 +2799,60 @@ async function fetchWithTimeout(url, options = {}, timeout = CONFIG.FETCH_TIMEOU
 }
 
 
+class WorkersAIProvider {
+  constructor(config, env) {
+    this.config = config;
+    this.name = 'workersai';
+    this.env = env;
+  }
+
+  async generate(prompt, options, logger) {
+    const modelId = (options && options.model) || 'flux-1-schnell';
+    const modelConfig = this.config.models.find(m => m.id === modelId);
+    if (!modelConfig) throw new Error(`모델 "${modelId}"을 찾을 수 없습니다`);
+    if (!this.env.AI) throw new Error('Workers AI 바인딩(env.AI)을 사용할 수 없습니다');
+
+    const steps = Math.min(Math.max(parseInt(options.steps) || 4, 1), 8);
+    const aiInput = {
+      prompt: String(options.prompt || prompt).slice(0, 2048),
+      steps
+    };
+
+    logger.info('Workers AI generation start', { model: modelId, steps });
+
+    const raw = await this.env.AI.run('@cf/black-forest-labs/flux-1-schnell', aiInput);
+
+    let imageBuffer;
+    if (raw && typeof raw.image === 'string') {
+      imageBuffer = base64ToArrayBuffer(raw.image);
+    } else if (raw instanceof ArrayBuffer) {
+      imageBuffer = raw;
+    } else if (raw && raw.image instanceof ArrayBuffer) {
+      imageBuffer = raw.image;
+    } else if (raw && raw.image) {
+      imageBuffer = new Uint8Array(raw.image).buffer;
+    } else {
+      throw new Error('Workers AI 응답에서 이미지를 찾을 수 없습니다');
+    }
+
+    return {
+      imageData: imageBuffer,
+      contentType: 'image/jpeg',
+      model: 'flux-1-schnell',
+      seed: Math.floor(Math.random() * 1000000),
+      width: options.width || 1024,
+      height: options.height || 1024,
+      quality_mode: options.qualityMode || 'standard',
+      style: options.style || 'none',
+      style_name: 'FLUX.1 Schnell',
+      style_category: 'flux',
+      generation_mode: 'WorkersAI',
+      authenticated: true,
+      from_cache: false
+    };
+  }
+}
+
 class PollinationsProvider {
   constructor(config, env) { 
     this.config = config; 
@@ -3133,7 +3269,8 @@ class MultiProviderRouter {
     this.env = env;
     for (const [key, config] of Object.entries(CONFIG.PROVIDERS)) {
       if (config.enabled) {
-        if (key === 'pollinations') this.providers[key] = new PollinationsProvider(config, env);
+        if (key === 'workersai') this.providers[key] = new WorkersAIProvider(config, env);
+        else if (key === 'pollinations') this.providers[key] = new PollinationsProvider(config, env);
         else if (key === 'infip') this.providers[key] = new InfipProvider(config, env);
       }
     }
@@ -3149,6 +3286,24 @@ class MultiProviderRouter {
   }
   
   async generate(prompt, options, logger) {
+    const tried = options && options.provider ? options.provider : CONFIG.DEFAULT_PROVIDER;
+    let lastError = null;
+    const order = ['workersai', 'pollinations', 'infip'];
+    const providersToTry = [tried].concat(order.filter(p => p !== tried && this.providers[p]));
+    for (const p of providersToTry) {
+      try {
+        const result = await this._generateWithProvider(prompt, Object.assign({}, options, { provider: p }), logger);
+        if (p !== tried) logger.info('Fallback provider used: ' + p);
+        return result;
+      } catch (error) {
+        lastError = error;
+        logger.error('Provider ' + p + ' failed' + (p === tried ? '' : ' (fallback)'), { error: error.message });
+      }
+    }
+    throw new Error(`All providers failed. Last error: ${lastError ? lastError.message : 'unknown'}`);
+  }
+
+  async _generateWithProvider(prompt, options, logger) {
     const { provider: requestedProvider = null, numOutputs = 1 } = options;
     const { name: providerName, instance: provider } = this.getProvider(requestedProvider);
     const results = [];
@@ -3259,7 +3414,7 @@ export default {
     console.log("IP:", clientIP);
     console.log("Path:", url.pathname);
     console.log("Method:", request.method);
-    console.log("API Endpoint:", CONFIG.PROVIDERS.pollinations.endpoint);
+    console.log("API Endpoint:", CONFIG.PROVIDERS[CONFIG.DEFAULT_PROVIDER].endpoint);
     console.log("===================");
     
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders() });
@@ -3286,14 +3441,14 @@ export default {
           status: 'ok', 
           version: CONFIG.PROJECT_VERSION, 
           timestamp: new Date().toISOString(),
-          uptime: process && process.uptime ? Math.floor(process.uptime()) : 'N/A',
+          uptime: (typeof process !== 'undefined' && process.uptime) ? Math.floor(process.uptime()) : 'N/A',
           styles_count: mergedStyles.stats.total,
           styles_breakdown: mergedStyles.stats,
           api_auth: { 
             enabled: CONFIG.POLLINATIONS_AUTH.enabled, 
             method: CONFIG.POLLINATIONS_AUTH.method, 
             has_token: !!CONFIG.POLLINATIONS_AUTH.token, 
-            endpoint: CONFIG.PROVIDERS.pollinations.endpoint 
+            endpoint: CONFIG.PROVIDERS[CONFIG.DEFAULT_PROVIDER].endpoint 
           },
           models: CONFIG.PROVIDERS.pollinations.models.map(m => ({ 
             id: m.id, 
@@ -3306,9 +3461,14 @@ export default {
             supports_reference_images: m.supports_reference_images || false 
           })),
           providers: {
+            workersai: {
+              enabled: CONFIG.PROVIDERS.workersai.enabled,
+              endpoint: CONFIG.PROVIDERS.workersai.endpoint,
+              models_count: CONFIG.PROVIDERS.workersai.models.length
+            },
             pollinations: {
               enabled: CONFIG.PROVIDERS.pollinations.enabled,
-              endpoint: CONFIG.PROVIDERS.pollinations.endpoint,
+              endpoint: CONFIG.PROVIDERS[CONFIG.DEFAULT_PROVIDER].endpoint,
               models_count: CONFIG.PROVIDERS.pollinations.models.length
             },
             infip: {
@@ -3344,7 +3504,7 @@ export default {
       const headers = new Headers(response.headers);
       headers.set('X-Response-Time', duration + 'ms');
       headers.set('X-Worker-Version', CONFIG.PROJECT_VERSION);
-      headers.set('X-API-Endpoint', CONFIG.PROVIDERS.pollinations.endpoint);
+      headers.set('X-API-Endpoint', CONFIG.PROVIDERS[CONFIG.DEFAULT_PROVIDER].endpoint);
       return new Response(response.body, { status: response.status, headers: headers });
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -3693,9 +3853,11 @@ async function handleInternalGenerate(request, env, ctx) {
     metricsCollector = new MetricsCollector(env);
   }
 
+  let body, prompt, options;
+
   try {
-    const body = await request.json();
-    const prompt = body.prompt;
+    body = await request.json();
+    prompt = body.prompt;
     if (!prompt || !prompt.trim()) throw new Error("Prompt is required");
 
     console.log("🍌 [Server] 收到生成請求:", {
@@ -3832,7 +3994,7 @@ async function handleInternalGenerate(request, env, ctx) {
     const userGuidance = body.guidance_scale ? parseFloat(body.guidance_scale) : null; // 修正拼寫錯誤
 
     // 准备基础选项
-    let options = { 
+    options = { 
       provider: body.provider || null, 
       model: body.model || "gptimage", 
       apiKey: request.headers.get('X-API-Key') || body.api_key || "",
@@ -3941,7 +4103,7 @@ async function handleInternalGenerate(request, env, ctx) {
           'X-Style-Category': cachedResult.style_category || 'unknown', 
           'X-Generation-Mode': cachedResult.generation_mode || '文生图', 
           'X-Authenticated': cachedResult.authenticated ? 'true' : 'false', 
-          'X-API-Endpoint': CONFIG.PROVIDERS.pollinations.endpoint, 
+          'X-API-Endpoint': CONFIG.PROVIDERS[CONFIG.DEFAULT_PROVIDER].endpoint, 
           ...corsHeaders() 
         }
       });
@@ -3980,7 +4142,7 @@ async function handleInternalGenerate(request, env, ctx) {
           'X-Style-Category': result.style_category || 'unknown', 
           'X-Generation-Mode': result.generation_mode || '文生图', 
           'X-Authenticated': result.authenticated ? 'true' : 'false', 
-          'X-API-Endpoint': CONFIG.PROVIDERS.pollinations.endpoint, 
+          'X-API-Endpoint': CONFIG.PROVIDERS[CONFIG.DEFAULT_PROVIDER].endpoint, 
           ...corsHeaders() 
         }
       });
@@ -3988,12 +4150,8 @@ async function handleInternalGenerate(request, env, ctx) {
     
     const imagesData = await Promise.all(results.map(async (r) => {
       if (r.imageData) {
-        const uint8Array = new Uint8Array(r.imageData);
-        let binary = '';
-        const len = uint8Array.byteLength;
-        for (let i = 0; i < len; i++) binary += String.fromCharCode(uint8Array[i]);
         return { 
-          image: `data:${r.contentType};base64,${btoa(binary)}`, 
+          image: `data:${r.contentType};base64,${bufferToBase64(r.imageData)}`, 
           model: r.model, 
           seed: r.seed, 
           width: r.width, 
@@ -4020,7 +4178,7 @@ async function handleInternalGenerate(request, env, ctx) {
       created: Math.floor(Date.now() / 1000), 
       data: imagesData.filter(d => d !== null), 
       generation_time_ms: duration, 
-      api_endpoint: CONFIG.PROVIDERS.pollinations.endpoint, 
+      api_endpoint: CONFIG.PROVIDERS[CONFIG.DEFAULT_PROVIDER].endpoint, 
       authenticated: CONFIG.POLLINATIONS_AUTH.enabled, 
       styles_available: mergedStyles.stats.total,
       cached: false // 單個圖像不會是緩存的，但為了一致性保留此字段
@@ -4028,7 +4186,7 @@ async function handleInternalGenerate(request, env, ctx) {
       headers: corsHeaders({ 
         'Content-Type': 'application/json', 
         'X-Generation-Time': duration + 'ms', 
-        'X-API-Endpoint': CONFIG.PROVIDERS.pollinations.endpoint, 
+        'X-API-Endpoint': CONFIG.PROVIDERS[CONFIG.DEFAULT_PROVIDER].endpoint, 
         'X-Styles-Count': mergedStyles.stats.total.toString() 
       }) 
     });
@@ -4073,7 +4231,7 @@ async function handleInternalGenerate(request, env, ctx) {
         type: e.constructor.name,
         stack: CONFIG.PROJECT_VERSION.includes('debug') ? e.stack : undefined, // 仅在调试版本中返回堆栈跟踪
         debug_logs: logger.getRecent(20), // 只返回最近20条日志
-        api_endpoint: CONFIG.PROVIDERS.pollinations.endpoint, 
+        api_endpoint: CONFIG.PROVIDERS[CONFIG.DEFAULT_PROVIDER].endpoint, 
         authenticated: CONFIG.POLLINATIONS_AUTH.enabled,
         timestamp: new Date().toISOString(),
         request_duration_ms: Date.now() - startTime
@@ -6457,7 +6615,8 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
 <div class="form-group">
     <label data-t="provider_label">API Provider (供应商)</label>
     <select id="provider">
-        <option value="pollinations" selected>Pollinations.ai (Free)</option>
+        <option value="workersai" selected>Workers AI — FLUX.1 Schnell (키 불필요)</option>
+        <option value="pollinations">Pollinations.ai (API 키 필요)</option>
         <option value="infip">Ghostbot (Infip) 🌟</option>
     </select>
 </div>
