@@ -6378,7 +6378,7 @@ function handleUI(request, env) {
   const now = Math.floor(Date.now() / 1000);
   const key = `ratelimit:${ip}`;
     const hasInfipServerKey = !!(env && env.INFIP_API_KEY);
-    const authStatus = CONFIG.POLLINATIONS_AUTH.enabled ? '<span style="color:#22c55e;font-weight:600;font-size:12px">🔐 已認證</span>' : '<span style="color:#f59e0b;font-weight:600;font-size:12px">⚠️ 需要 API Key</span>';
+    const authStatus = '<span style="color:#22c55e;font-weight:600;font-size:12px">☁ Workers AI 사용 중 (무료)</span>';
     
     // 生成樣式選單 HTML
   const url = new URL(request.url);
