@@ -1,5 +1,23 @@
 # Flux AI Pro - AI Enhanced Edition (V14.0.0) 🚀
 
+## 🔧 修改说明 / Changelog
+
+本仓库为 `lza6/Flux-AI-Pro-optimization` 的修改版，主要改动如下：
+
+- 移除了第三方访客统计脚本（Whos.Amung.Us / waust.at）
+- CSP（Content-Security-Policy）中移除了 `waust.at` 与 `*.whos.amung.us` 域名放行
+- 在线人数统计由自建 KV 心跳机制实现（见 `handleHeartbeat`），IP 记录 60 秒后自动过期
+- 其他内容与原版保持一致
+
+## 🔒 隐私说明 / Privacy
+
+- 本工具不收集任何个人身份信息（姓名、账号、密码等），不使用第三方追踪脚本
+- 在线人数通过 KV 心跳统计，仅保留最近 60 秒内的活跃记录
+- 生成图像时仅发送提示词（文本），不发送用户身份信息
+
+Privacy: No personal information is collected, no third-party trackers. Online presence is measured via a server-side KV heartbeat (60-second TTL). Image generation requests send only the prompt text, never user identity.
+
+
 ## 🌟 项目概述
 
 欢迎来到 **Flux AI Pro** - 一款革命性的AI图像生成平台！✨ 这不仅仅是一个普通的AI图像生成工具，它是一个集成了先进AI技术、多层缓存系统、企业级安全防护和卓越用户体验的综合性解决方案。我们致力于为每一位用户提供最流畅、最安全、最强大的AI图像创作体验。

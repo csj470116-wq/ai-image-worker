@@ -1500,7 +1500,7 @@ function corsHeaders(extra = {}) {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-Worker-Version, X-Source, Authorization',
-    'Content-Security-Policy': "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob: ws: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://waust.at https://*.whos.amung.us https:;",
+    'Content-Security-Policy': "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob: ws: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:;",
     ...extra
   };
 }
@@ -4704,7 +4704,7 @@ select:focus {
                     <h1>Nano Pro <span class="badge">V11.7</span></h1>
                     <p style="color:#666; font-size:12px">Flux Engine • Pro Model • Pollinations AI</p>
                     <div style="font-size:11px; color:#22c55e; margin-top:4px; display:flex; align-items:center; gap:4px">
-                        <script id="_waudw4">var _wau = _wau || []; _wau.push(["small", "yuynsazz1f", "dw4"]);</script><script async src="//waust.at/s.js"></script>
+                        
                     </div>
                 </div>
                 <div style="position:relative">
@@ -5574,7 +5574,7 @@ select:focus {
     const COOLDOWN_SEC = 180;
     let cooldownInterval = null;
 
-    // Online Count (whos.amung.us widget handled in HTML)
+    // Online Count (KV heartbeat, see handleHeartbeat)
 
     function checkAndStartCooldown() {
         const lastTime = localStorage.getItem(COOLDOWN_KEY);
@@ -6404,7 +6404,7 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
     🎨 Flux AI Pro <span class="badge">v${CONFIG.PROJECT_VERSION}</span>
 </div>
 <div style="font-size:12px; color:#22c55e; margin-left:20px; display:flex; align-items:center; gap:6px; font-weight:normal; text-shadow:none; min-width:80px; min-height:20px;">
-    <script id="_wau96x">var _wau = _wau || []; _wau.push(["dynamic", "yrofl40dzz", "96x", "c4302bffffff", "small"]);</script><script async src="https://waust.at/d.js"></script>
+    
 </div>
         <div><div class="api-status">${authStatus}</div></div>
     </div>
@@ -7628,7 +7628,7 @@ function displayResult(items){
     document.getElementById('results').appendChild(div);
 }
 
-// Online Count (whos.amung.us widget handled in HTML)
+// Online Count (KV heartbeat, see handleHeartbeat)
 window.onload=()=>{
     updateLang();
     updateHistoryDisplay();
