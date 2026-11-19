@@ -1557,8 +1557,8 @@ function corsHeaders(extra = {}) {
 
 async function translateToEnglish(text, env) {
   try {
-    const hasChinese = /[\u4e00-\u9fa5\u3400-\u4db5\u20000-\u2a6d6]/.test(text);
-    if (!hasChinese) return { text: text, translated: false, reason: "No Chinese detected" };
+    const hasNonAscii = /[^\x00-\x7F]/.test(text);
+    if (!hasNonAscii) return { text: text, translated: false, reason: "Already ASCII" };
     const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=" + encodeURIComponent(text);
     const response = await fetch(url, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } });
     if (!response.ok) throw new Error(`Google API HTTP ${response.status}`);
@@ -3628,8 +3628,8 @@ async function handlePromptGeneration(request, env) {
       });
     }
     
-    // 構建 Pollinations 文本生成請求
-    const systemPrompt = `You are an expert image analyzer and prompt generator.
+    // 프롬프트 생성용 시스템 프롬프트 文本生成請求
+    const imageSystemPrompt = `You are an expert image analyzer and prompt generator.
 
 CRITICAL INSTRUCTIONS FOR IMAGE ANALYSIS:
 1. Carefully examine the ENTIRE image - look at the main subject, background, colors, lighting, style, and mood
@@ -3652,20 +3652,35 @@ Output ONLY the final prompt. No explanations, no "Here is the prompt:", no addi
 
 EXAMPLE OUTPUT:
 A serene Japanese garden at sunset, featuring a traditional wooden bridge over a koi pond, cherry blossoms in full bloom, soft golden light filtering through the trees, photorealistic style, warm color palette, peaceful atmosphere, high detail, 8k quality.`;
+
+    const textSystemPrompt = `You are an expert prompt engineer for AI image generation.
+Rewrite the user's description into a detailed, professional image generation prompt.
+Rules:
+- English only
+- Include: subject, artistic style, lighting, composition, color palette, mood, and quality boosters (high detail, 8k)
+- 60-100 words
+- Output ONLY the final prompt. No explanations, no meta text, no quotes.`;
+
+    const systemPrompt = (finalImageUrl) ? imageSystemPrompt : textSystemPrompt;
     
     // 构建用户内容数组
-    const userContent = [];
     
     // 添加文本内容
-    let textPrompt = input ? `Optimize this prompt: ${input}` : `Generate a prompt based on the image.`;
+    let effectiveInput = input;
+    if (input) {
+        try {
+            const hasNonAscii = /[^\x00-\x7F]/.test(input);
+            if (hasNonAscii) {
+                const tr = await translateToEnglish(input, env);
+                if (tr && tr.translated) effectiveInput = tr.text;
+            }
+        } catch (e) { /* ignore, use original */ }
+    }
+    let textPrompt = effectiveInput ? `Optimize this prompt: ${effectiveInput}` : `Generate a prompt based on the image.`;
     if (style && style !== 'none') {
         textPrompt += `\n\nCRITICAL INSTRUCTION: The generated prompt MUST strictly adhere to the "${style}" art style. You must include specific artistic keywords, lighting techniques, color palettes, and composition styles associated with ${style}. Make the style the dominant visual characteristic of the image.`;
     }
     
-    userContent.push({
-        type: "text",
-        text: textPrompt
-    });
     
     // 如果有图片，添加图片内容
     if (finalImageUrl) {
@@ -3710,15 +3725,9 @@ A serene Japanese garden at sunset, featuring a traditional wooden bridge over a
             }
             
             console.log('✅ Image URL validated successfully');
+            var imageBytes = new Uint8Array(await imageTestResponse.arrayBuffer());
+            var imageMime = (typeof contentType !== 'undefined' && contentType) ? (contentType.split(';')[0].trim() || 'image/jpeg') : 'image/jpeg';
             
-            // 添加图片到用户内容
-            userContent.push({
-                type: "image_url",
-                image_url: {
-                    url: finalImageUrl,
-                    detail: "high"
-                }
-            });
             
         } catch (error) {
             console.error('❌ Image URL validation error:', error);
@@ -3732,78 +3741,60 @@ A serene Japanese garden at sunset, featuring a traditional wooden bridge over a
         }
     }
     
-    // 使用 Pollinations Vision API (v1/chat/completions)
-    const apiUrl = 'https://gen.pollinations.ai/v1/chat/completions';
-    
-    // 構建請求體
-    const requestBody = {
-        model: "openai",
-        messages: [
-            {
-                role: "system",
-                content: systemPrompt
-            },
-            {
-                role: "user",
-                content: userContent
-            }
-        ],
-        seed: Math.floor(Math.random() * 1000000)
-    };
-    
-    // 構建請求頭
-    const headers = {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    };
-    
-    // 如果有 API Key，添加認證
-    if (env.POLLINATIONS_API_KEY) {
-        headers['Authorization'] = `Bearer ${env.POLLINATIONS_API_KEY}`;
-    }
-    
-    // Call Pollinations Vision API
-    console.log('📤 Sending request to Pollinations Vision API:', {
-        endpoint: apiUrl,
-        model: requestBody.model,
+    // 使用 Workers AI (Cloudflare) 프롬프트 생성
+    console.log('Sending request to Workers AI:', {
         hasImage: !!finalImageUrl,
-        imageUrl: finalImageUrl?.substring(0, 60) + '...',
         hasTextInput: !!input,
-        style: style,
-        contentItems: userContent.length
-    });
-    
-    const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify(requestBody)
+        style: style
     });
 
-    console.log('📥 Received response from Pollinations:', {
-        status: response.status,
-        ok: response.ok,
-        contentType: response.headers.get('content-type')
-    });
-
-    if (!response.ok) {
-        const errText = await response.text();
-        console.error('❌ Pollinations API Error Details:', {
-            status: response.status,
-            error: errText,
-            endpoint: apiUrl
+    let generatedPrompt = '';
+    if (finalImageUrl && typeof imageBytes !== 'undefined') {
+        // 이미지 기반 프롬프트 생성 (Llama 3.2 11B Vision Instruct)
+        const visionPrompt = 'Describe this image for use as an AI image generation prompt. English only, one paragraph, 60-100 words. Include: main subject, artistic style, lighting, composition, color palette, mood, and quality boosters (high detail, 8k). Output ONLY the prompt, no explanations.';
+        const imageDataUri = 'data:' + (typeof imageMime !== 'undefined' ? imageMime : 'image/jpeg') + ';base64,' + bufferToBase64(imageBytes.buffer);
+        const visionMessages = [
+            { role: 'system', content: 'You are an expert prompt engineer for AI image generation. Describe the image accurately and concisely.' },
+            { role: 'user', content: visionPrompt }
+        ];
+        let aiResp;
+        try {
+            aiResp = await env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
+                messages: visionMessages,
+                image: imageDataUri,
+                max_tokens: 300
+            });
+        } catch (visionError) {
+            const errMsg = String((visionError && visionError.message) || visionError);
+            if (/agree|license|acceptable/i.test(errMsg)) {
+                // Meta 라이선스는 계정당 1회 acknowledge 필요 (idempotent)
+                console.warn('Llama 3.2 Vision license not acknowledged yet; sending one-time Meta license acknowledgment');
+                try {
+                    // 계정당 1회 acknowledge; 5016('Thank you for agreeing') 응답도 성공으로 처리
+                    await env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', { prompt: 'agree' });
+                } catch (agreeError) {
+                    console.warn('License acknowledgment response:', String((agreeError && agreeError.message) || agreeError));
+                }
+                aiResp = await env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
+                    messages: visionMessages,
+                    image: imageDataUri,
+                    max_tokens: 300
+                });
+            } else {
+                throw visionError;
+            }
+        }
+        generatedPrompt = (aiResp && (typeof aiResp === 'string' ? aiResp : (aiResp.response || aiResp.description || aiResp.text))) || '';
+    } else {
+        // 텍스트 기반 프롬프트 최적화 (Llama 3.3 70B Instruct FP8 Fast)
+        const aiResp = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: textPrompt }
+            ]
         });
-        throw new Error(`Pollinations API Error (${response.status}): ${errText}`);
+        generatedPrompt = (aiResp && aiResp.response) || '';
     }
-    
-    const data = await response.json();
-    
-    // 解析回應
-    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-        console.error('❌ Invalid response format:', data);
-        throw new Error('Invalid response format from API');
-    }
-    
-    const generatedPrompt = data.choices[0].message.content;
     console.log('✅ Generated prompt:', {
         length: generatedPrompt.length,
         preview: generatedPrompt.substring(0, 100) + '...'
@@ -3827,7 +3818,7 @@ A serene Japanese garden at sunset, featuring a traditional wooden bridge over a
     return new Response(JSON.stringify({
       success: true,
       prompt: trimmedPrompt,
-      model: requestBody.model
+      model: 'workers-ai'
     }), {
       status: 200,
       headers: corsHeaders({ 'Content-Type': 'application/json' })
