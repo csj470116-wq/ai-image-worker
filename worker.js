@@ -4242,7 +4242,7 @@ async function handleInternalGenerate(request, env, ctx) {
 // 🔥 Cyber-Banana UI: 包含每小时限额(5张)、Pro模型、灯箱、下载功能
 function handleNanoPage(request) {
   const html = `<!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="ko">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>🍌 NanoBanana Pro - 控制台</title>
@@ -4956,7 +4956,7 @@ select:focus {
                     <div id="nanoPromptImageDropZone" class="nano-drag-drop-zone">
                         <div class="drag-icon">📷</div>
                         <div class="drag-text" id="promptGeneratorSelectText">拖放圖片或點擊選擇</div>
-                        <div class="drag-subtext">支援 JPG, PNG, GIF (最大 32MB)</div>
+                        <div class="drag-subtext">지원 JPG, PNG, GIF (최대 32MB)</div>
                         <div id="nanoPromptImageUploadProgress" class="nano-upload-progress-container">
                             <div class="nano-upload-progress-bar">
                                 <div class="nano-upload-progress-fill" id="nanoPromptImageUploadProgressFill"></div>
@@ -6402,7 +6402,7 @@ function handleUI(request, env) {
   }
   
   const html = `<!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="ko">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Flux AI Pro v${CONFIG.PROJECT_VERSION}</title>
@@ -6604,7 +6604,7 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
 <div class="section-title" data-t="settings_title">⚙️ 生成参数</div>
 <form id="generateForm">
 <div class="form-group">
-    <label data-t="provider_label">API Provider (供应商)</label>
+    <label data-t="provider_label">API 공급자</label>
     <select id="provider">
         <option value="workersai" selected>Workers AI — FLUX.1 Schnell (키 불필요)</option>
         <option value="pollinations">Pollinations.ai (API 키 필요)</option>
@@ -6621,24 +6621,24 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
 
 <div class="form-group" id="nsfwGroup" style="display:none; align-items:center; justify-content:space-between; background:rgba(239, 68, 68, 0.1); padding:10px; border-radius:8px; border:1px solid rgba(239, 68, 68, 0.3);">
     <div>
-        <label for="nsfwToggle" style="margin:0; cursor:pointer; color:#f87171;">🔞 解除成人内容限制 (NSFW)</label>
-        <div style="font-size:11px; color:#fca5a5; margin-top:2px;">启用此选项将允许生成成人内容 (仅 Infip)</div>
+        <label for="nsfwToggle" style="margin:0; cursor:pointer; color:#f87171;">🔞 NSFW 필터 비활성화</label>
+        <div style="font-size:11px; color:#fca5a5; margin-top:2px;">이 옵션을 활성화하면 성인 콘텐츠 생성이 허용됩니다 (Infip 전용)</div>
     </div>
     <input type="checkbox" id="nsfwToggle" style="width:20px; height:20px; cursor:pointer;">
 </div>
 
 <div class="form-group">
-    <label data-t="model_label">模型选择</label>
+    <label data-t="model_label">모델 선택</label>
     <select id="model">
         <!-- JS will populate this -->
     </select>
 </div>
-<div class="form-group"><label data-t="size_label">尺寸預設</label><select id="size">${sizeOptionsHTML}</select></div>
-<div class="form-group"><label data-t="style_label">艺术风格 🎨</label><select id="style">${styleOptionsHTML}</select></div>
-<div class="form-group"><label data-t="quality_label">質量模式</label><select id="qualityMode"><option value="economy">Economy</option><option value="standard" selected>Standard</option><option value="ultra">Ultra HD</option></select></div>
+<div class="form-group"><label data-t="size_label">이미지 크기</label><select id="size">${sizeOptionsHTML}</select></div>
+<div class="form-group"><label data-t="style_label">아트 스타일 🎨</label><select id="style">${styleOptionsHTML}</select></div>
+<div class="form-group"><label data-t="quality_label">품질 모드</label><select id="qualityMode"><option value="economy">Economy</option><option value="standard" selected>Standard</option><option value="ultra">Ultra HD</option></select></div>
 
 <div class="form-group">
-    <label data-t="seed_label">Seed (种子码)</label>
+    <label data-t="seed_label">시드 값</label>
     <div style="display:flex; gap:10px;">
         <input type="number" id="seed" value="-1" placeholder="Random (-1)" disabled style="flex:1; opacity: 0.7; cursor: not-allowed; font-family: monospace;">
         <button type="button" id="seedToggleBtn" class="btn" style="width:auto; padding:0 15px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2);">🎲</button>
@@ -6648,16 +6648,16 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
 <div class="form-group" style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; margin-top:15px;">
     <div style="display:flex; justify-content:space-between; align-items:center;">
         <div>
-            <label for="autoOptimize" style="margin:0; cursor:pointer;" data-t="auto_opt_label">✨ 自动优化</label>
-            <div style="font-size:11px; color:#9ca3af; margin-top:2px;" data-t="auto_opt_desc">自动调整 Steps 与 Guidance</div>
+            <label for="autoOptimize" style="margin:0; cursor:pointer;" data-t="auto_opt_label">✨ 자동 최적화</label>
+            <div style="font-size:11px; color:#9ca3af; margin-top:2px;" data-t="auto_opt_desc">스텝과 가이던스를 자동 조정</div>
         </div>
         <input type="checkbox" id="autoOptimize" checked style="width:auto; width:20px; height:20px; cursor:pointer;">
     </div>
     
     <div id="batchGroup" style="display:none; margin-top:15px; border-top:1px solid rgba(255,255,255,0.1); padding-top:15px;">
-        <div style="font-size:12px; color:#f59e0b; margin-bottom:10px; font-weight:bold;">🖼️ 批量生成</div>
+        <div style="font-size:12px; color:#f59e0b; margin-bottom:10px; font-weight:bold;">🖼️ 배치 생성</div>
         <div class="form-group">
-            <label>生成数量 (Batch Size)</label>
+            <label>배치 크기</label>
             <select id="batchSize">
                 <option value="1">1 张</option>
                 <option value="2">2 张</option>
@@ -6668,85 +6668,85 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
     </div>
 
     <div id="advancedParams" style="display:none; margin-top:15px; border-top:1px solid rgba(255,255,255,0.1); padding-top:15px;">
-        <div style="font-size:12px; color:#f59e0b; margin-bottom:10px; font-weight:bold;" data-t="adv_settings">🛠️ 进阶参数</div>
+        <div style="font-size:12px; color:#f59e0b; margin-bottom:10px; font-weight:bold;" data-t="adv_settings">🛠️ 고급 설정</div>
         
         <div class="form-group">
-            <label data-t="steps_label">生成步数 (Steps)</label>
+            <label data-t="steps_label">생성 스텝</label>
             <input type="number" id="steps" value="25" min="1" max="50">
         </div>
         
         <div class="form-group">
-            <label data-t="guidance_label">引导系数 (Guidance)</label>
+            <label data-t="guidance_label">가이던스 스케일</label>
             <input type="number" id="guidanceScale" value="7.5" step="0.1" min="1" max="20">
         </div>
     </div>
 </div>
 
-<button type="submit" class="btn btn-primary" id="generateBtn" data-t="gen_btn" style="margin-top:10px;">🎨 开始生成</button>
+<button type="submit" class="btn btn-primary" id="generateBtn" data-t="gen_btn" style="margin-top:10px;">🎨 생성 시작</button>
 </form>
 </div>
 <div class="center-panel">
-<div id="results"><div class="empty-state"><p data-t="empty_title">尚未生成任何圖像</p></div></div>
+<div id="results"><div class="empty-state"><p data-t="empty_title">아직 생성된 이미지가 없습니다</p></div></div>
 </div>
 <div class="right-panel">
-<div class="form-group"><label data-t="pos_prompt">正面提示詞</label><textarea id="prompt" placeholder="Describe your image..." required></textarea></div>
-<div class="form-group"><label data-t="neg_prompt">負面提示詞 (可選)</label><textarea id="negativePrompt" placeholder="What to avoid..." rows="4">nsfw, ugly, text, watermark, low quality, bad anatomy, distortion, blurry</textarea></div>
-<div class="form-group"><label data-t="ref_img">參考圖像 (Img2Img) 📸</label>
+<div class="form-group"><label data-t="pos_prompt">긍정적 프롬프트</label><textarea id="prompt" placeholder="Describe your image..." required></textarea></div>
+<div class="form-group"><label data-t="neg_prompt">부정적 프롬프트 (선택 사항)</label><textarea id="negativePrompt" placeholder="What to avoid..." rows="4">nsfw, ugly, text, watermark, low quality, bad anatomy, distortion, blurry</textarea></div>
+<div class="form-group"><label data-t="ref_img">참조 이미지 (Img2Img) 📸</label>
     <input type="file" id="imageUpload" accept="image/*" style="display:none">
     <div id="imageDropZone" class="drag-drop-zone">
         <div class="drag-icon">📷</div>
-        <div class="drag-text">拖放图片或点击选择</div>
-        <div class="drag-subtext">支援 JPG, PNG, GIF (最大 32MB)</div>
+        <div class="drag-text">드래그 앤 드롭 또는 클릭하여 선택</div>
+        <div class="drag-subtext">지원 JPG, PNG, GIF (최대 32MB)</div>
         <div id="imageUploadProgress" class="upload-progress-container">
             <div class="upload-progress-bar">
                 <div class="upload-progress-fill" id="imageUploadProgressFill"></div>
             </div>
-            <div class="upload-progress-text" id="imageUploadProgressText">上传中... 0%</div>
+            <div class="upload-progress-text" id="imageUploadProgressText">업로드 중... 0%</div>
         </div>
     </div>
     <textarea id="referenceImages" placeholder="Image URL (or upload above)" rows="3" style="margin-top:10px;"></textarea>
-    <div style="font-size:11px; color:#9ca3af; margin-top:4px;">* 支持模型: Kontext, Flux, Klein</div>
+    <div style="font-size:11px; color:#9ca3af; margin-top:4px;">* 지원 모델: Kontext, Flux, Klein</div>
 </div>
 
-<!-- ====== 专业提示词生成器 (Pollinations) ====== -->
+<!-- ====== 전문 프롬프트 생성기 (Pollinations) ====== -->
 <div class="form-group" style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(59, 130, 246, 0.1)); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 12px; padding: 16px; margin-top: 20px;">
     <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
         <span style="font-size: 18px;">🤖</span>
-        <span style="font-weight: 700; color: #a78bfa;" data-t="prompt_generator_title">专业提示词生成器</span>
+        <span style="font-weight: 700; color: #a78bfa;" data-t="prompt_generator_title">전문 프롬프트 생성기</span>
         <span style="font-size: 10px; background: rgba(139, 92, 246, 0.3); padding: 2px 8px; border-radius: 10px; margin-left: auto;">Pollinations</span>
     </label>
     
     <div style="margin-bottom: 12px;">
-        <label style="font-size: 11px; color: #9ca3af; margin-bottom: 6px; display: block;" data-t="prompt_generator_upload_ref">上传参考图片 (可选 - 用于图片分析)</label>
+        <label style="font-size: 11px; color: #9ca3af; margin-bottom: 6px; display: block;" data-t="prompt_generator_upload_ref">참조 이미지 업로드 (선택 사항 - 이미지 분석용)</label>
         <input type="file" id="promptImageUpload" accept="image/*" style="display:none">
         <div id="promptImageDropZone" class="drag-drop-zone">
             <div class="drag-icon">📷</div>
-            <div class="drag-text" data-t="prompt_generator_select_image">拖放图片或点击选择</div>
-            <div class="drag-subtext">支援 JPG, PNG, GIF (最大 32MB)</div>
+            <div class="drag-text" data-t="prompt_generator_select_image">드래그 앤 드롭 또는 클릭하여 선택</div>
+            <div class="drag-subtext">지원 JPG, PNG, GIF (최대 32MB)</div>
             <div id="promptImageUploadProgress" class="upload-progress-container">
                 <div class="upload-progress-bar">
                     <div class="upload-progress-fill" id="promptImageUploadProgressFill"></div>
                 </div>
-                <div class="upload-progress-text" id="promptImageUploadProgressText">上传中... 0%</div>
+                <div class="upload-progress-text" id="promptImageUploadProgressText">업로드 중... 0%</div>
             </div>
         </div>
         <button type="button" id="promptImageClearBtn"
                 style="width: 100%; margin-top: 6px; background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); padding: 6px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; display: none;">
-            <span>✕ 清除圖片</span>
+            <span>✕ 이미지 지우기</span>
         </button>
         <div id="promptImagePreview" style="display: none; margin-top: 8px;">
-            <img id="promptImagePreviewImg" src="" alt="预览" style="max-width: 100%; max-height: 120px; border-radius: 6px; border: 1px solid rgba(139, 92, 246, 0.3);">
+            <img id="promptImagePreviewImg" src="" alt="미리보기" style="max-width: 100%; max-height: 120px; border-radius: 6px; border: 1px solid rgba(139, 92, 246, 0.3);">
         </div>
     </div>
     
     <div style="margin-bottom: 12px;">
-        <label style="font-size: 11px; color: #9ca3af; margin-bottom: 6px; display: block;" data-t="prompt_generator_simple_desc">简单描述你想要的画面</label>
-        <textarea id="promptInput" placeholder="例如：一隻可愛的貓咪在陽光下睡覺..."
+        <label style="font-size: 11px; color: #9ca3af; margin-bottom: 6px; display: block;" data-t="prompt_generator_simple_desc">원하는 이미지를 간단히 설명</label>
+        <textarea id="promptInput" placeholder="예: 사랑스러운 고양이가 햇살 아래에서 잠자는 모습..."
                   rows="3" style="width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 10px 12px; color: #fff; font-size: 13px; resize: none;"></textarea>
     </div>
     
     <div style="font-size: 11px; color: #f59e0b; margin-bottom: 12px; background: rgba(245, 158, 11, 0.1); padding: 8px; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.2);" data-t="prompt_generator_tip">
-        💡 <strong>小提示：</strong> 选择左侧的「艺术风格」后，生成器会自动融合该风格（如：赛博朋克、水墨画等）到提示词中，让画面更具艺术感！
+        💡 <strong>팁:</strong> 选择左侧的「艺术风格」后，生成器会自动融合该风格（如：赛博朋克、水墨画等）到提示词中，让画面更具艺术感！
     </div>
 
     <div style="display: flex; gap: 10px; margin-bottom: 12px;">
@@ -7797,7 +7797,7 @@ const PromptGenerator = {
         const referenceImage = document.getElementById('referenceImages')?.value.trim() || '';
         
         if (!input && !referenceImage && !this.uploadedImage) {
-            this.showStatus('请输入画面描述或上传图片', 'error');
+            this.showStatus('프롬프트를 입력하거나 이미지를 업로드하세요', 'error');
             return;
         }
         
@@ -7821,7 +7821,7 @@ const PromptGenerator = {
             }
         }
         
-        const statusText = style !== 'none' ? '正在使用 Pollinations (Gemini) 生成專業提示詞... [風格: ' + style + ']' : '正在使用 Pollinations (Gemini) 生成專業提示詞...';
+        const statusText = style !== 'none' ? 'Pollinations (Gemini)로 전문 프롬프트를 생성하는 중... [스타일: ' + style + ']' : 'Pollinations (Gemini)로 전문 프롬프트를 생성하는 중...';
         this.showStatus(statusText, 'loading');
         
         try {
