@@ -3431,7 +3431,7 @@ export default {
         response = await handleInternalGenerate(request, env, ctx);
       }
       else if (url.pathname === '/api/upload') {
-        response = await handleUpload(request);
+        response = await handleUpload(request, env);
       }
       else if (url.pathname === '/api/generate-prompt') {
         response = await handlePromptGeneration(request, env);
@@ -3514,7 +3514,7 @@ export default {
   }
 };
 
-async function handleUpload(request) {
+async function handleUpload(request, env) {
   if (request.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405, headers: corsHeaders() });
   }
@@ -3552,7 +3552,7 @@ async function handleUpload(request) {
 
     // 使用 ImgBB API 上传图片
     // ImgBB 免費 API Key (用於測試，生產環境建議使用自己的 API Key)
-    const IMGBB_API_KEY = '8245f772dd33870730fab74e7e236df2'; // 免費測試用 API Key
+    const IMGBB_API_KEY = (env && env.IMGBB_API_KEY) || '8245f772dd33870730fab74e7e236df2'; // 環境変数優先，回退測試用 API Key
     
     // 将文件转换为 Base64（使用分块处理避免堆叠溢出）
     const arrayBuffer = await file.arrayBuffer();
@@ -3987,7 +3987,7 @@ async function handleInternalGenerate(request, env, ctx) {
     // 准备基础选项
     options = { 
       provider: body.provider || null, 
-      model: body.model || "gptimage", 
+      model: body.model || "flux-1-schnell", 
       apiKey: request.headers.get('X-API-Key') || body.api_key || "",
       width: Math.min(Math.max(width, 256), 2048), 
       height: Math.min(Math.max(height, 256), 2048), 
@@ -7575,7 +7575,7 @@ async function updateHistoryDisplay(){
         d.querySelector('.reuse-btn').onclick=()=>{
             document.getElementById('prompt').value=item.prompt||'';
             const modelSelect = document.getElementById('model');
-            const targetModel = item.model || 'gptimage';
+            const targetModel = item.model || 'flux-1-schnell';
             
             // Check if model exists in current provider, if not, try to switch provider or just warn
             // Ideally we should switch provider based on model, but we don't store provider in history yet (we should!)
