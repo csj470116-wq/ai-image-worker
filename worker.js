@@ -3550,6 +3550,9 @@ export default {
     const startTime = Date.now();
 
     const clientIP = getClientIP(request);
+    // Load optional free-provider tokens from Worker secrets
+    if (env.HF_TOKEN) HF_TOKEN = env.HF_TOKEN;
+    if (env.REPLICATE_TOKEN) REPLICATE_TOKEN = env.REPLICATE_TOKEN;
     if (env.POLLINATIONS_API_KEY) { CONFIG.POLLINATIONS_AUTH.enabled = true; CONFIG.POLLINATIONS_AUTH.token = env.POLLINATIONS_API_KEY; }
     else { console.warn("⚠️ POLLINATIONS_API_KEY not set - requests may fail on new API endpoint"); CONFIG.POLLINATIONS_AUTH.enabled = false; CONFIG.POLLINATIONS_AUTH.token = ""; }
     
@@ -6834,6 +6837,9 @@ async function handleHistory(request, env) {
 
 // ====== Adult-mode generators (opt-in only; consensual fictional adults) ======
 let ADULT_LAST_REQUEST = 0; // module-level, for Pollinations Classic 45s/IP throttle
+// Tokens (set from env in fetch handler; hardcoded fallback for local dev)
+let HF_TOKEN = (typeof process !== 'undefined' && process.env && process.env.HF_TOKEN) || '';
+let REPLICATE_TOKEN = (typeof process !== 'undefined' && process.env && process.env.REPLICATE_TOKEN) || ''; // set via REPLICATE_TOKEN env / wrangler secret
 
 // ====== Adult-mode generators (opt-in only; consensual fictional adults) ======
 // Provider chain: HF Chroma -> HF Illustrious -> Replicate FLUX-dev -> Pollinations sana (last resort)
@@ -6892,29 +6898,22 @@ async function generateAdultImage(prompt, width, height, ctx) {
   const NEGATIVE = 'bad hands, extra fingers, missing fingers, fused fingers, deformed hands, mutated fingers, bad anatomy, disproportionate body, asymmetrical face, deformed eyes, blurry face, low quality, worst quality, watermark, text, signature';
   const enhancedPrompt = prompt + QUALITY_SUFFIX;
 
-  // 1) HF Spaces (free, high-quality anatomy) - try each
-  for (const space of HF_SPACES) {
-    try {
-      const r = await callHFSpace(space, enhancedPrompt, width, height, NEGATIVE);
-      return r;
-    } catch (e) { console.warn('[Adult] ' + space.sub + ' failed: ' + e.message); }
-  }
-
-  // 2) Replicate FLUX-dev (free limited runs) - if token configured
+  // 1) Replicate FLUX-dev (high quality, priority) (free limited runs) - if token configured
   if (typeof REPLICATE_TOKEN !== 'undefined' && REPLICATE_TOKEN) {
     try {
       const rr = await fetchWithTimeout('https://api.replicate.com/v1/models/black-forest-labs/flux-dev/predictions', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + REPLICATE_TOKEN, 'Content-Type': 'application/json', 'Prefer': 'wait' },
+        headers: { 'Authorization': 'Bearer ' + REPLICATE_TOKEN, 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
         body: JSON.stringify({ input: { prompt: enhancedPrompt, width: Math.min(width,1024), height: Math.min(height,1024), num_outputs: 1, output_format: 'webp' } })
       }, 120000);
       if (rr.ok) {
         let pred = await rr.json();
-        for (let i = 0; i < 20 && (!pred.output || pred.status !== 'succeeded'); i++) {
+        for (let i = 0; i < 30 && (!pred.output || pred.status !== 'succeeded'); i++) {
           await sleepForRetry(2000);
-          const pr = await fetchWithTimeout(pred.urls.get, { headers: { 'Authorization': 'Bearer ' + REPLICATE_TOKEN } }, 30000);
+          if (!pred.urls || !pred.urls.get) break;
+          const pr = await fetchWithTimeout(pred.urls.get, { headers: { 'Authorization': 'Bearer ' + REPLICATE_TOKEN, 'User-Agent': 'Mozilla/5.0' } }, 30000);
           pred = await pr.json();
-          if (pred.status === 'failed') break;
+          if (pred.status === 'failed' || pred.status === 'canceled') break;
         }
         const outUrl = Array.isArray(pred.output) ? pred.output[0] : pred.output;
         if (outUrl) {
@@ -6923,6 +6922,14 @@ async function generateAdultImage(prompt, width, height, ctx) {
         }
       }
     } catch (e) { console.warn('[Adult] Replicate failed: ' + e.message); }
+  }
+
+  // 2) HF Spaces (free, high-quality anatomy) - try each
+  for (const space of HF_SPACES) {
+    try {
+      const r = await callHFSpace(space, enhancedPrompt, width, height, NEGATIVE);
+      return r;
+    } catch (e) { console.warn('[Adult] ' + space.sub + ' failed: ' + e.message); }
   }
 
   // 3) Pollinations sana (last resort, low quality)
