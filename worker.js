@@ -4371,7 +4371,10 @@ async function handleInternalGenerate(request, env, ctx) {
     if (options.nsfw === true) {
       logger.info('Adult mode requested -> external generators');
       try {
-        const adult = await generateAdultImage(prompt, options.width || 1024, options.height || 1024);
+        const adult = await generateAdultImage(prompt, options.width || 1024, options.height || 1024, ctx);
+        if (adult && adult.retry) {
+          return new Response(JSON.stringify({ success: false, retry: true, retryAfter: adult.retryAfter, message: adult.message }), { status: 202, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+        }
         return new Response(adult.buffer, { headers: { 'Content-Type': adult.contentType, 'X-Generation-Mode': 'adult-' + adult.provider, ...corsHeaders() } });
       } catch (ae) {
         logger.error('Adult generation failed', { error: ae.message });
@@ -6832,27 +6835,46 @@ async function handleHistory(request, env) {
 // ====== Adult-mode generators (opt-in only; consensual fictional adults) ======
 let ADULT_LAST_REQUEST = 0; // module-level, for Pollinations Classic 45s/IP throttle
 
-async function generateAdultImage(prompt, width, height) {
+async function generateAdultImage(prompt, width, height, ctx) {
   const q = encodeURIComponent(prompt);
-  // Try Pollinations Classic (keyless, free, safe=false, 1 image / 45s per IP)
+  // 1) Pollinations Classic (keyless, free, safe=false). No blocking 45s wait; if rate-limited, signal retry.
   try {
-    const waitMs = Math.max(0, 45000 - (Date.now() - ADULT_LAST_REQUEST));
-    if (waitMs > 0) await sleepForRetry(waitMs);
     const url = 'https://image.pollinations.ai/prompt/' + q + '?width=' + width + '&height=' + height + '&seed=' + Math.floor(Math.random()*1000000) + '&safe=false&nologo=true&private=true';
     const resp = await fetchWithTimeout(url, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0' } }, 120000);
     if (resp.ok) {
       const ct = resp.headers.get('content-type') || 'image/jpeg';
-      const buf = await resp.arrayBuffer();
-      ADULT_LAST_REQUEST = Date.now();
-      return { buffer: buf, contentType: ct, provider: 'pollinations-classic' };
+      return { buffer: await resp.arrayBuffer(), contentType: ct, provider: 'pollinations-classic' };
     }
-    ADULT_LAST_REQUEST = Date.now();
+    // 402 FREE_LIMIT / 503 capacity -> schedule background retry
+    if (resp.status === 402 || resp.status === 503) {
+      if (ctx && ctx.waitUntil) {
+        ctx.waitUntil((async () => {
+          await sleepForRetry(46000);
+          try { await fetchWithTimeout(url, { method:'GET', headers:{'User-Agent':'Mozilla/5.0'} }, 120000); } catch(e) {}
+        })());
+      }
+      const retryAfter = resp.headers.get('Retry-After') || '45';
+      return { retry: true, retryAfter: retryAfter, message: '무료 생성 한도 대기 중 (' + retryAfter + '초). 잠시 후 다시 시도하세요.' };
+    }
   } catch (e) { console.error('[Adult] Pollinations failed:', e.message); }
 
-  // Fallback: Hugging Face free Pony Diffusion Space (Gradio API, 2-step SSE)
+  // 2) HF Pony free Space (correct named-params payload per gradio_api/openapi.json)
   try {
     const space = 'https://artificialguybr-ponydiffusion-xl-free-demo.hf.space';
-    const callBody = { data: [prompt, 'low quality, blurry, worst quality', 0, width, height, 7, 20, 'Euler a', '1024 x 1024', false, 0, 1] };
+    const callBody = { data: [{
+      prompt: prompt,
+      negative_prompt: 'low quality, blurry, worst quality',
+      seed: Math.floor(Math.random()*1000000),
+      custom_width: width,
+      custom_height: height,
+      guidance_scale: 7,
+      num_inference_steps: 20,
+      sampler: 'Euler a',
+      aspect_ratio_selector: 'Custom',
+      use_upscaler: false,
+      upscaler_strength: 0,
+      upscale_by: 1
+    }] };
     const cr = await fetchWithTimeout(space + '/gradio_api/call/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(callBody) }, 120000);
     if (cr.ok) {
       const cj = await cr.json();
@@ -6860,15 +6882,19 @@ async function generateAdultImage(prompt, width, height) {
       if (eid) {
         const sr = await fetchWithTimeout(space + '/gradio_api/call/run/' + encodeURIComponent(eid), { method: 'GET' }, 180000);
         const txt = await sr.text();
-        const m = txt.match(/data:\s*(\{[^\n]*\}|\[[^\n]*\])/);
-        if (m) {
-          const arr = JSON.parse(m[1]);
-          const img = Array.isArray(arr) ? arr[0] : arr;
-          const imgUrl = (img && (img.url || img.path)) || (typeof img === 'string' ? img : null);
-          if (imgUrl) {
-            const ir = await fetchWithTimeout(imgUrl.startsWith('http') ? imgUrl : (space + '/gradio_api/file=' + imgUrl), {}, 120000);
-            if (ir.ok) return { buffer: await ir.arrayBuffer(), contentType: 'image/png', provider: 'hf-pony' };
+        if (!txt.includes('event: error')) {
+          const m = txt.match(/data:\s*(\{[^\n]*\}|\[[^\n]*\])/);
+          if (m) {
+            const arr = JSON.parse(m[1]);
+            const img = Array.isArray(arr) ? arr[0] : arr;
+            const imgUrl = (img && (img.url || img.path)) || (typeof img === 'string' ? img : null);
+            if (imgUrl) {
+              const ir = await fetchWithTimeout(imgUrl.startsWith('http') ? imgUrl : (space + '/gradio_api/file=' + imgUrl), {}, 120000);
+              if (ir.ok) return { buffer: await ir.arrayBuffer(), contentType: 'image/png', provider: 'hf-pony' };
+            }
           }
+        } else {
+          console.warn('[Adult] HF Pony Space returned event:error (quota/Space issue)');
         }
       }
     }
@@ -8319,6 +8345,12 @@ document.getElementById('generateForm').addEventListener('submit',async(e)=>{
         
         let items=[];
         const contentType=res.headers.get('content-type');
+        if(res.status===202){
+            const d=await res.json();
+            resDiv.innerHTML='<p style="color:#f59e0b;text-align:center;padding:20px">⏳ '+ (d.message||'대기 중...') +'<br><small>'+ (d.retryAfter||45) +'초 후 다시 시도해 주세요</small></p>';
+            btn.disabled=false; btn.textContent=I18N[curLang].gen_btn;
+            return;
+        }
         if(contentType&&contentType.startsWith('image/')){
             const blob=await res.blob();
             const reader=new FileReader();
