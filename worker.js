@@ -270,7 +270,8 @@ const CONFIG = {
         batch_generation: false, api_key_auth: false
       },
       models: [
-        { id: "flux-1-schnell", name: "FLUX.1 Schnell ⚡", confirmed: true, category: "flux", description: "12B FLUX Schnell, 초고속, 무료 (Apache-2.0)", max_size: 2048, pricing: { image_price: 0, currency: "free" } }
+        { id: "flux-1-schnell", name: "FLUX.1 Schnell ⚡", confirmed: true, category: "flux", description: "12B FLUX Schnell, 초고속, 무료 (Apache-2.0)", max_size: 2048, pricing: { image_price: 0, currency: "free" } },
+        { id: "phoenix-1.0", name: "Phoenix 1.0 🎨 (seed-capable)", confirmed: true, category: "leonardo", description: "Leonardo Phoenix, seed 지원, 무료", max_size: 2048, pricing: { image_price: 0, currency: "free" }, supports_seed: true }
       ],
       rate_limit: null,
       max_size: { width: 1024, height: 1024 }
@@ -2808,19 +2809,36 @@ class WorkersAIProvider {
 
   async generate(prompt, options, logger) {
     const modelId = (options && options.model) || 'flux-1-schnell';
+    const WA_MODEL_MAP = { 'flux-1-schnell': '@cf/black-forest-labs/flux-1-schnell', 'phoenix-1.0': '@cf/leonardo/phoenix-1.0' };
+    const waModelId = WA_MODEL_MAP[modelId] || '@cf/black-forest-labs/flux-1-schnell';
+    const seedCapable = (modelId === 'phoenix-1.0');
+    const requestedSeed = (typeof options?.seed === 'number' && options.seed > 0) ? options.seed : null;
     const modelConfig = this.config.models.find(m => m.id === modelId);
     if (!modelConfig) throw new Error(`모델 "${modelId}"을 찾을 수 없습니다`);
     if (!this.env.AI) throw new Error('Workers AI 바인딩(env.AI)을 사용할 수 없습니다');
 
     const steps = Math.min(Math.max(parseInt(options.steps) || 4, 1), 8);
-    const aiInput = {
-      prompt: String(options.prompt || prompt).slice(0, 2048),
-      steps
-    };
+    let aiInput;
+    if (modelId === 'phoenix-1.0') {
+      aiInput = {
+        prompt: String(options.prompt || prompt).slice(0, 2048),
+        num_steps: Math.min(Math.max(parseInt(options.steps) || 25, 1), 50),
+        width: options.width || 1024,
+        height: options.height || 1024
+      };
+      if (requestedSeed) aiInput.seed = requestedSeed;
+      if (options.negativePrompt) aiInput.negative_prompt = options.negativePrompt;
+      if (options.guidance) aiInput.guidance = options.guidance;
+    } else {
+      aiInput = {
+        prompt: String(options.prompt || prompt).slice(0, 2048),
+        steps
+      };
+    }
 
     logger.info('Workers AI generation start', { model: modelId, steps });
 
-    const raw = await this.env.AI.run('@cf/black-forest-labs/flux-1-schnell', aiInput);
+    const raw = await this.env.AI.run(waModelId, aiInput);
 
     let imageBuffer;
     if (raw && typeof raw.image === 'string') {
@@ -2831,6 +2849,33 @@ class WorkersAIProvider {
       imageBuffer = raw.image;
     } else if (raw && raw.image) {
       imageBuffer = new Uint8Array(raw.image).buffer;
+    } else if (raw && typeof raw.getReader === 'function') {
+      // ReadableStream (e.g. Phoenix 1.0 returns binary JPEG stream)
+      const reader = raw.getReader();
+      const chunks = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      const total = chunks.reduce((n, c) => n + (c ? c.length : 0), 0);
+      const buf = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { if (c) { buf.set(c, off); off += c.length; } }
+      imageBuffer = buf.buffer;
+    } else if (raw && raw.body && typeof raw.body.getReader === 'function') {
+      const reader = raw.body.getReader();
+      const chunks = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      const total = chunks.reduce((n, c) => n + (c ? c.length : 0), 0);
+      const buf = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { if (c) { buf.set(c, off); off += c.length; } }
+      imageBuffer = buf.buffer;
     } else {
       throw new Error('Workers AI 응답에서 이미지를 찾을 수 없습니다');
     }
@@ -2838,8 +2883,8 @@ class WorkersAIProvider {
     return {
       imageData: imageBuffer,
       contentType: 'image/jpeg',
-      model: 'flux-1-schnell',
-      seed: Math.floor(Math.random() * 1000000),
+      model: modelId,
+      seed: (requestedSeed && seedCapable) ? requestedSeed : Math.floor(Math.random() * 1000000),
       width: options.width || 1024,
       height: options.height || 1024,
       quality_mode: options.qualityMode || 'standard',
@@ -3998,7 +4043,20 @@ async function handleInternalGenerate(request, env, ctx) {
         if (!isNaN(parsedSeed)) seedValue = parsedSeed; 
     }
     
-    const autoOptimize = body.auto_optimize !== false;
+     
+     // Seed-aware model routing: Workers AI (FLUX.1 Schnell) rejects 'seed' (schema: additionalProperties=false).
+     // To keep full seeded reproducibility WITHOUT reducing scope, route seed requests to a seed-capable
+     // Workers AI model: stable-diffusion-xl-lightning (free, supports seed). Non-seed requests keep FLUX.1 Schnell.
+     if (seedValue !== -1) {
+       const reqProvider = (body.provider || 'workersai').toLowerCase();
+       const reqModel = body.model || 'flux-1-schnell';
+       if (reqProvider === 'workersai' && reqModel === 'flux-1-schnell') {
+         body.model = 'phoenix-1.0';
+         logger.add('\U0001f331 Seed routing', { note: 'WorkersAI FLUX.1 Schnell rejects seed; routing to Phoenix 1.0 (seed-capable, free)', seed: seedValue });
+       }
+     }
+
+     const autoOptimize = body.auto_optimize !== false;
     const userSteps = body.steps ? parseInt(body.steps) : null;
     const userGuidance = body.guidance_scale ? parseFloat(body.guidance_scale) : null; // 修正拼寫錯誤
 
