@@ -3481,8 +3481,17 @@ export default {
       else if (url.pathname === '/api/generate-prompt') {
         response = await handlePromptGeneration(request, env);
       }
+      else if (url.pathname === '/api/generate-caption') {
+        response = await handleGenerateCaption(request, env);
+      }
       else if (url.pathname === '/heartbeat') {
         response = await handleHeartbeat(request, env);
+      }
+      else if (url.pathname === '/manifest.json') {
+        response = handleManifest(request);
+      }
+      else if (url.pathname === '/sw.js') {
+        response = handleServiceWorker(request);
       }
       else if (url.pathname === '/health') {
         response = new Response(JSON.stringify({
@@ -3673,6 +3682,66 @@ async function handleUpload(request, env) {
 }
 
 // ====== Pollinations Prompt Generator Handler ======
+async function handleGenerateCaption(request, env) {
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405, headers: corsHeaders() });
+  }
+  try {
+    const body = await request.json();
+    const prompt = (body.prompt || '').trim();
+    if (!prompt) {
+      return new Response(JSON.stringify({ error: 'Prompt is required' }), { status: 400, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+    const style = body.style || 'none';
+    const systemPrompt = `You are a social media caption writer. Given an image description, write a catchy caption and hashtags.
+Return ONLY a JSON object, nothing else:
+{"caption":"<1-2 sentence engaging caption>","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8"]}
+Rules: caption in the same language as the description; 8 hashtags mixing Korean and English; no markdown, no explanation.`;
+    const userPrompt = `Image description: ${prompt}\nStyle: ${style}`;
+    let caption = '';
+    let hashtags = [];
+    if (env && env.AI) {
+      try {
+        const res = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          max_tokens: 300
+        });
+        const rawResp = (res && (res.response || res.result || res.text)) || '';
+        const text = (typeof rawResp === 'string') ? rawResp : JSON.stringify(rawResp || '');
+        let parsed = null;
+        try {
+          const cleaned = text.replace(/\r?\n/g, ' ');
+          const si = cleaned.indexOf('{');
+          const ei = cleaned.lastIndexOf('}');
+          if (si !== -1 && ei !== -1 && ei > si) {
+            parsed = JSON.parse(cleaned.substring(si, ei + 1));
+          }
+        } catch (pe) {
+          parsed = null;
+        }
+        if (parsed && (parsed.caption || parsed.hashtags)) {
+          caption = parsed.caption || '';
+          hashtags = Array.isArray(parsed.hashtags) ? parsed.hashtags.filter(function (h) { return h && h !== '#'; }) : [];
+        } else {
+          const trimmed = text.trim();
+          if (trimmed && !trimmed.startsWith('{')) caption = trimmed.substring(0, 200);
+        }
+      } catch (e) {
+        caption = prompt.substring(0, 120);
+        hashtags = ['#AIart', '#imagegen', '#flux'];
+      }
+      }
+    if (!caption) caption = prompt.substring(0, 120);
+    if (!hashtags.length) hashtags = ['#AIart', '#imagegen'];
+    return new Response(JSON.stringify({ success: true, caption, hashtags }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+  }
+}
+
 async function handlePromptGeneration(request, env) {
   if (request.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405, headers: corsHeaders() });
@@ -6380,6 +6449,24 @@ async function handleMetrics(request, env) {
 }
 
 // System Health Check
+function handleManifest(request) {
+  const manifest = {
+    name: "Flux AI Pro",
+    short_name: "FluxAI",
+    description: "AI Image Generator - Korean prompt support",
+    start_url: "/",
+    display: "standalone",
+    background_color: "#0a0a0a",
+    theme_color: "#f59e0b",
+    icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }]
+  };
+  return new Response(JSON.stringify(manifest), { headers: { 'Content-Type': 'application/manifest+json', ...corsHeaders() } });
+}
+function handleServiceWorker(request) {
+  const sw = `self.addEventListener('install', e => self.skipWaiting());\nself.addEventListener('activate', e => e.waitUntil(clients.claim()));\nself.addEventListener('fetch', e => {});`;
+  return new Response(sw, { headers: { 'Content-Type': 'application/javascript', ...corsHeaders() } });
+}
+
 async function handleHealthCheck(request, env) {
   const startTime = Date.now();
   
@@ -6480,7 +6567,7 @@ function handleUI(request, env) {
   const html = `<!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#f59e0b">
 <title>Flux AI Pro v${CONFIG.PROJECT_VERSION}</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎨</text></svg>">
 <style>
@@ -6765,7 +6852,25 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
 <div id="results"><div class="empty-state"><p data-t="empty_title">아직 생성된 이미지가 없습니다</p></div></div>
 </div>
 <div class="right-panel">
+<div class="form-group" style="margin-bottom:12px;">
+  <label style="font-size:12px;color:#9ca3af;margin-bottom:6px;display:block;">🇰🇷 한국어 프리셋 (클릭 시 프롬프트 자동 입력)</label>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;">
+    <button type="button" class="kr-preset-btn" data-prompt="지브리 화풍으로 그린, 부드러운 색감, 동화 같은 분위기, 따뜻한 조명, 높은 디테일" style="padding:6px 10px;font-size:11px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;">지브리</button>
+    <button type="button" class="kr-preset-btn" data-prompt="웹툰 컷 스타일, 한국 만화, 선명한 선, 감성적인 색감, 4컷 구성" style="padding:6px 10px;font-size:11px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;">웹툰 컷</button>
+    <button type="button" class="kr-preset-btn" data-prompt="증명사진 스타일, 정장, 흰 배경, 깔끔한 조명, 자연스러운 피부" style="padding:6px 10px;font-size:11px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;">증명사진</button>
+    <button type="button" class="kr-preset-btn" data-prompt="3D 피규어 스타일, 데스크 위, 선물상자, 미니어처, 고품질 렌더" style="padding:6px 10px;font-size:11px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;">피규어</button>
+    <button type="button" class="kr-preset-btn" data-prompt="레트로 감성, 필름 그레인, 80년대, 빈티지 색감, 노스텔지어" style="padding:6px 10px;font-size:11px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;">레트로 감성</button>
+  </div>
+</div>
 <div class="form-group"><label data-t="pos_prompt">긍정적 프롬프트</label><textarea id="prompt" placeholder="Describe your image..." required></textarea></div>
+<div class="form-group" style="margin-top:8px;">
+  <button type="button" id="snsCaptionBtn" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid rgba(139,92,246,0.4);background:rgba(139,92,246,0.15);color:#a78bfa;font-size:12px;cursor:pointer;">📱 SNS 캡션 + 해시태그 생성</button>
+  <div id="snsCaptionResult" style="display:none;margin-top:8px;padding:10px;border-radius:8px;background:rgba(0,0,0,0.25);font-size:12px;">
+    <div id="snsCaptionText" style="margin-bottom:6px;white-space:pre-wrap;"></div>
+    <div id="snsHashtags" style="color:#9ca3af;word-break:break-word;"></div>
+    <button type="button" id="snsCopyBtn" style="margin-top:6px;padding:4px 10px;font-size:11px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;">복사</button>
+  </div>
+</div>
 <div class="form-group"><label data-t="neg_prompt">부정적 프롬프트 (선택 사항)</label><textarea id="negativePrompt" placeholder="What to avoid..." rows="4">nsfw, ugly, text, watermark, low quality, bad anatomy, distortion, blurry</textarea></div>
 <div class="form-group"><label data-t="ref_img">참조 이미지 (Img2Img) 📸</label>
     <input type="file" id="imageUpload" accept="image/*" style="display:none">
@@ -7855,6 +7960,38 @@ function displayResult(items){
 }
 
 // Online Count (KV heartbeat, see handleHeartbeat)
+// Korean preset buttons
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('.kr-preset-btn');
+  if(btn){ document.getElementById('prompt').value = btn.getAttribute('data-prompt') || ''; }
+});
+
+// SNS Caption generator
+document.addEventListener('DOMContentLoaded', function(){
+  const btn = document.getElementById('snsCaptionBtn');
+  if(!btn) return;
+  btn.addEventListener('click', async function(){
+    const prompt = (document.getElementById('prompt').value||'').trim();
+    if(!prompt){ alert('프롬프트를 먼저 입력하세요'); return; }
+    btn.disabled = true; btn.textContent = '생성 중...';
+    try {
+      const res = await fetch('/api/generate-caption', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({prompt, style: document.getElementById('style').value||'none'}) });
+      const data = await res.json();
+      if(data.success){
+        document.getElementById('snsCaptionText').textContent = data.caption;
+        document.getElementById('snsHashtags').textContent = (data.hashtags||[]).join(' ');
+        document.getElementById('snsCaptionResult').style.display = 'block';
+      } else { alert(data.error||'실패'); }
+    } catch(e){ alert('에러: '+e.message); }
+    btn.disabled = false; btn.textContent = '📱 SNS 캡션 + 해시태그 생성';
+  });
+  const copyBtn = document.getElementById('snsCopyBtn');
+  if(copyBtn) copyBtn.addEventListener('click', function(){
+    const t = document.getElementById('snsCaptionText').textContent + '\n' + document.getElementById('snsHashtags').textContent;
+    navigator.clipboard.writeText(t).then(()=>{ copyBtn.textContent='복사됨!'; setTimeout(()=>copyBtn.textContent='복사',1500); });
+  });
+});
+
 window.onload=()=>{
     updateLang();
     updateHistoryDisplay();
