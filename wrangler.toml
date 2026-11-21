@@ -66,6 +66,8 @@ CACHE_PREDICTION_ENABLED = true
 PERFORMANCE_PROFILING_ENABLED = true
 ADVANCED_SECURITY_ENABLED = true
 DB_QUERY_OPTIMIZATION = true
+# ImgBB 이미지 업로드 API Key (https://api.imgbb.com/ 에서 발급 후 본인 값으로 설정)
+IMGBB_API_KEY = "49f272179b235f6c58d89a2a96e439ff"
 
 # ============================================
 # Secrets 通过 wrangler secret 命令设置
