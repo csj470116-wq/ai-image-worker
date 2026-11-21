@@ -3336,6 +3336,7 @@ function isPermanentClientError(error) {
   if (/invalid file type|invalid image|prompt is required|prompt too long|malicious/i.test(m)) return true;
   if (/찾을 수 없습니다|모델 .* 未找到|model .* not found/i.test(m)) return true;
   if (/\b400\b|\b401\b|\b403\b|\b422\b|status_code.*4\d\d/i.test(m)) return true;
+  if (/4006|daily free allocation|neurons|quota|usage limit|upgrade to.*paid/i.test(m)) return true;
   return false;
 }
 function circuitIsOpen(provider) {
@@ -3343,6 +3344,13 @@ function circuitIsOpen(provider) {
   return !!(st && st.openUntil && Date.now() < st.openUntil);
 }
 function circuitRecordFailure(provider, error) {
+  // Quota exhaustion -> open the circuit so we don't waste retries on a provider with no budget.
+  const em = String((error && error.message) || error || '').toLowerCase();
+  if (/4006|daily free allocation|neurons|quota|usage limit|upgrade to.*paid/i.test(em)) {
+    const stq = PROVIDER_CIRCUIT[provider] || (PROVIDER_CIRCUIT[provider] = { failures: 0, openUntil: 0 });
+    stq.openUntil = Date.now() + 60 * 60 * 1000; // 1 hour cooldown for quota exhaustion
+    return;
+  }
   // Permanent client errors are not the provider's fault -> do not trip the breaker.
   if (isPermanentClientError(error)) return;
   const st = PROVIDER_CIRCUIT[provider] || (PROVIDER_CIRCUIT[provider] = { failures: 0, openUntil: 0 });
@@ -8347,7 +8355,7 @@ document.addEventListener('DOMContentLoaded', function(){
   });
   const copyBtn = document.getElementById('snsCopyBtn');
   if(copyBtn) copyBtn.addEventListener('click', function(){
-    const t = document.getElementById('snsCaptionText').textContent + '\n' + document.getElementById('snsHashtags').textContent;
+    const t = document.getElementById('snsCaptionText').textContent + String.fromCharCode(10) + document.getElementById('snsHashtags').textContent;
     navigator.clipboard.writeText(t).then(()=>{ copyBtn.textContent='복사됨!'; setTimeout(()=>copyBtn.textContent='복사',1500); });
   });
 });
@@ -8756,7 +8764,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <div class="footer" style="position:relative; z-index:10; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; gap:15px; flex-wrap:wrap;">
     <span>Powered by Flux AI Pro • <a href="https://github.com/kinai9661/Flux-AI-Pro" target="_blank">Engine</a> • <a href="/nano" target="_blank">Nano Version</a></span>
     <span style="opacity:0.5">|</span>
-    <span style="opacity:0.9">友情鏈接: <a href="https://pollinations.ai" target="_blank">Pollinations.ai</a> • <a href="https://infip.pro" target="_blank">Infip</a> • <a href="https://github.com" target="_blank">GitHub</a></span>
+    <span style="opacity:0.9">관련 링크: <a href="https://pollinations.ai" target="_blank">Pollinations.ai</a> • <a href="https://infip.pro" target="_blank">Infip</a> • <a href="https://github.com" target="_blank">GitHub</a></span>
     <span style="opacity:0.5">|</span>
     <a href="https://showmebest.ai" target="_blank" style="display:flex; align-items:center;"><img src="https://showmebest.ai/badge/feature-badge-dark.webp" alt="Featured on ShowMeBestAI" width="165" height="45"></a>
 </div>
