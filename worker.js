@@ -3493,6 +3493,12 @@ export default {
       else if (url.pathname === '/sw.js') {
         response = handleServiceWorker(request);
       }
+      else if (url.pathname === '/api/inpaint') {
+        response = await handleInpaint(request, env);
+      }
+      else if (url.pathname === '/mcp') {
+        response = await handleMCP(request, env, ctx);
+      }
       else if (url.pathname === '/health') {
         response = new Response(JSON.stringify({
           status: 'ok', 
@@ -6467,6 +6473,152 @@ function handleServiceWorker(request) {
   return new Response(sw, { headers: { 'Content-Type': 'application/javascript', ...corsHeaders() } });
 }
 
+// ====== Image extraction helper for Workers AI responses (base64 / ArrayBuffer / ReadableStream) ======
+async function extractImageFromAIResponse(raw) {
+  if (!raw) return null;
+  if (raw instanceof ArrayBuffer) return { buffer: raw, contentType: 'image/png' };
+  if (raw && typeof raw.image === 'string') {
+    // base64
+    const bin = atob(raw.image);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return { buffer: arr.buffer, contentType: 'image/png' };
+  }
+  if (raw && raw.image instanceof ArrayBuffer) return { buffer: raw.image, contentType: 'image/png' };
+  if (raw && raw.image) {
+    try { return { buffer: new Uint8Array(raw.image).buffer, contentType: 'image/png' }; } catch (e) {}
+  }
+  if (raw && typeof raw.getReader === 'function') {
+    const reader = raw.getReader();
+    const chunks = [];
+    while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
+    const total = chunks.reduce((n, c) => n + (c ? c.length : 0), 0);
+    const buf = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { if (c) { buf.set(c, off); off += c.length; } }
+    return { buffer: buf.buffer, contentType: 'image/png' };
+  }
+  if (raw && raw.body && typeof raw.body.getReader === 'function') {
+    const reader = raw.body.getReader();
+    const chunks = [];
+    while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
+    const total = chunks.reduce((n, c) => n + (c ? c.length : 0), 0);
+    const buf = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { if (c) { buf.set(c, off); off += c.length; } }
+    return { buffer: buf.buffer, contentType: 'image/png' };
+  }
+  return null;
+}
+
+async function handleInpaint(request, env) {
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405, headers: corsHeaders() });
+  }
+  try {
+    const body = await request.json();
+    const prompt = (body.prompt || '').trim();
+    if (!prompt) {
+      return new Response(JSON.stringify({ error: 'Prompt is required' }), { status: 400, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+    const imageB64 = body.image_b64 || body.image;
+    const mask = body.mask;
+    if (!imageB64) {
+      return new Response(JSON.stringify({ error: 'image_b64 (base64 image) is required' }), { status: 400, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+    if (!mask || !Array.isArray(mask)) {
+      return new Response(JSON.stringify({ error: 'mask (array of 0-255 ints) is required' }), { status: 400, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+    const width = Math.min(Math.max(parseInt(body.width) || 512, 256), 2048);
+    const height = Math.min(Math.max(parseInt(body.height) || 512, 256), 2048);
+    const numSteps = Math.min(Math.max(parseInt(body.num_steps) || 20, 1), 20);
+    const guidance = parseFloat(body.guidance) || 7.5;
+    const negativePrompt = body.negative_prompt || '';
+    const seed = (typeof body.seed === 'number' && body.seed > 0) ? body.seed : null;
+
+    if (!env || !env.AI) {
+      return new Response(JSON.stringify({ error: 'Workers AI binding unavailable' }), { status: 503, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+
+    const aiInput = {
+      prompt: prompt,
+      image_b64: imageB64,
+      mask: mask,
+      width: width,
+      height: height,
+      num_steps: numSteps,
+      guidance: guidance
+    };
+    if (negativePrompt) aiInput.negative_prompt = negativePrompt;
+    if (seed) aiInput.seed = seed;
+
+    const raw = await env.AI.run('@cf/runwayml/stable-diffusion-v1-5-inpainting', aiInput);
+    const extracted = await extractImageFromAIResponse(raw);
+    if (!extracted || !extracted.buffer) {
+      return new Response(JSON.stringify({ error: 'Inpainting failed: no image in response' }), { status: 502, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+    return new Response(extracted.buffer, { headers: { 'Content-Type': 'image/png', ...corsHeaders() } });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+  }
+}
+
+async function handleMCP(request, env, ctx) {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders() });
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405, headers: corsHeaders() });
+  }
+  let body;
+  try { body = await request.json(); } catch (e) {
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+  }
+  const { jsonrpc, id, method, params } = body || {};
+  if (jsonrpc !== '2.0') {
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: id || null, error: { code: -32600, message: 'Invalid Request' } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+  }
+  if (method === 'initialize') {
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'Flux AI Pro', version: '14.0.0' } } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+  }
+  if (method === 'tools/list') {
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: { tools: [
+      { name: 'generate_image', description: 'Generate an image from a prompt (Workers AI FLUX.1 Schnell, free)', inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, width: { type: 'integer' }, height: { type: 'integer' }, seed: { type: 'integer' }, style: { type: 'string' } }, required: ['prompt'] } },
+      { name: 'optimize_prompt', description: 'Optimize a prompt (Korean supported, auto-translated)', inputSchema: { type: 'object', properties: { input: { type: 'string' }, style: { type: 'string' } }, required: ['input'] } },
+      { name: 'list_styles', description: 'List available style presets', inputSchema: { type: 'object', properties: {} } }
+    ] } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+  }
+  if (method === 'tools/call') {
+    const name = params && params.name;
+    const args = (params && params.arguments) || {};
+    if (name === 'generate_image') {
+      try {
+        const internalReq = new Request('http://localhost/_internal/generate', { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'MCP-Client' }, body: JSON.stringify({ prompt: args.prompt, width: args.width || 512, height: args.height || 512, seed: args.seed, style: args.style || 'none' }) });
+        const resp = await handleInternalGenerate(internalReq, env, ctx);
+        const buf = await resp.arrayBuffer();
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const ct = resp.headers.get('Content-Type') || 'image/jpeg';
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: { content: [{ type: 'image', data: b64, mimeType: ct }, { type: 'text', text: 'Generated image (' + buf.byteLength + ' bytes)' }] } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+      } catch (e) {
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32000, message: e.message } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+      }
+    }
+    if (name === 'optimize_prompt') {
+      try {
+        const internalReq = new Request('http://localhost/api/generate-prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ input: args.input, style: args.style || 'none' }) });
+        const resp = await handlePromptGeneration(internalReq, env);
+        const data = await resp.json();
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: data.prompt || JSON.stringify(data) }] } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+      } catch (e) {
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32000, message: e.message } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+      }
+    }
+    if (name === 'list_styles') {
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(Object.keys(CONFIG.STYLE_PRESETS || {})) }] } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found: ' + name } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+  }
+  return new Response(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+}
+
 async function handleHealthCheck(request, env) {
   const startTime = Date.now();
   
@@ -6863,6 +7015,17 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
   </div>
 </div>
 <div class="form-group"><label data-t="pos_prompt">긍정적 프롬프트</label><textarea id="prompt" placeholder="Describe your image..." required></textarea></div>
+<div class="form-group" style="margin-top:12px; border-top:1px solid rgba(255,255,255,0.1); padding-top:12px;">
+  <label style="font-size:12px;color:#9ca3af;margin-bottom:6px;display:block;">🇰🇷 한글 텍스트 오버레이 (무료, 캔버스)</label>
+  <canvas id="textOverlayCanvas" width="512" height="512" style="width:100%;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:#111;cursor:pointer;" title="클릭하여 이미지 선택"></canvas>
+  <input type="text" id="overlayText" placeholder="한글 텍스트 입력 (예: 성수동 카페)" style="width:100%;margin-top:6px;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(0,0,0,0.3);color:#fff;">
+  <div style="display:flex;gap:6px;margin-top:6px;align-items:center;">
+    <input type="number" id="overlayFontSize" value="48" min="12" max="120" style="width:70px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(0,0,0,0.3);color:#fff;">
+    <input type="color" id="overlayColor" value="#ffffff" style="width:40px;height:32px;border:none;border-radius:6px;cursor:pointer;">
+    <button type="button" id="overlayRenderBtn" style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid rgba(139,92,246,0.4);background:rgba(139,92,246,0.15);color:#a78bfa;cursor:pointer;font-size:12px;">텍스트 렌더</button>
+    <button type="button" id="overlayDownloadBtn" style="padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;font-size:12px;">다운로드</button>
+  </div>
+</div>
 <div class="form-group" style="margin-top:8px;">
   <button type="button" id="snsCaptionBtn" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid rgba(139,92,246,0.4);background:rgba(139,92,246,0.15);color:#a78bfa;font-size:12px;cursor:pointer;">📱 SNS 캡션 + 해시태그 생성</button>
   <div id="snsCaptionResult" style="display:none;margin-top:8px;padding:10px;border-radius:8px;background:rgba(0,0,0,0.25);font-size:12px;">
@@ -7989,6 +8152,46 @@ document.addEventListener('DOMContentLoaded', function(){
   if(copyBtn) copyBtn.addEventListener('click', function(){
     const t = document.getElementById('snsCaptionText').textContent + '\n' + document.getElementById('snsHashtags').textContent;
     navigator.clipboard.writeText(t).then(()=>{ copyBtn.textContent='복사됨!'; setTimeout(()=>copyBtn.textContent='복사',1500); });
+  });
+});
+
+// Korean text overlay (free, canvas-based, perfect Korean)
+document.addEventListener('DOMContentLoaded', function(){
+  const canvas = document.getElementById('textOverlayCanvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let baseImg = null;
+  canvas.addEventListener('click', function(){
+    const inp = document.createElement('input'); inp.type='file'; inp.accept='image/*';
+    inp.onchange = function(e){
+      const f = e.target.files[0]; if(!f) return;
+      const r = new FileReader();
+      r.onload = function(ev){ const img = new Image(); img.onload = function(){ baseImg = img; ctx.drawImage(img,0,0,canvas.width,canvas.height); }; img.src = ev.target.result; };
+      r.readAsDataURL(f);
+    };
+    inp.click();
+  });
+  const renderBtn = document.getElementById('overlayRenderBtn');
+  if(renderBtn) renderBtn.addEventListener('click', function(){
+    if(!baseImg){ alert('먼저 캔버스를 클릭해 이미지를 선택하세요'); return; }
+    ctx.drawImage(baseImg,0,0,canvas.width,canvas.height);
+    const text = document.getElementById('overlayText').value || '';
+    const size = parseInt(document.getElementById('overlayFontSize').value)||48;
+    const color = document.getElementById('overlayColor').value;
+    ctx.font = 'bold ' + size + 'px sans-serif';
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,0.7)';
+    ctx.shadowBlur = 6;
+    ctx.fillText(text, canvas.width/2, canvas.height/2);
+  });
+  const dlBtn = document.getElementById('overlayDownloadBtn');
+  if(dlBtn) dlBtn.addEventListener('click', function(){
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = 'korean-text-overlay.png';
+    a.click();
   });
 });
 
