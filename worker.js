@@ -3511,7 +3511,31 @@ class MultiProviderRouter {
 }
 
 // Global Cache for Online Count (To save KV List operations)
+// ====== P2: Worker Cron scheduled handler (automation) ======
+// Runs on the cron schedule defined in wrangler.toml [triggers].
+// Auto-cleanup: stale D1 request logs, expired KV cache keys are TTL-managed by KV itself.
+async function handleScheduled(controller, env, ctx) {
+  const cron = (controller && controller.cron) || 'unknown';
+  console.log('[Cron] scheduled run:', cron, new Date().toISOString());
+  let cleaned = 0;
+  try {
+    if (env && env.DB) {
+      // Keep only the most recent 5000 request log rows (bounded storage).
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const res = await env.DB.prepare('DELETE FROM user_requests WHERE created_at < ?').bind(cutoff).run();
+      cleaned = (res && res.meta && res.meta.rows_written) || 0;
+      console.log('[Cron] cleaned old user_requests rows:', cleaned);
+    }
+  } catch (e) {
+    console.error('[Cron] cleanup error:', e.message);
+  }
+  ctx.waitUntil(Promise.resolve());
+}
+
 export default {
+  async scheduled(controller, env, ctx) {
+    return handleScheduled(controller, env, ctx);
+  },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const startTime = Date.now();
