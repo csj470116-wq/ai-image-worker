@@ -241,18 +241,18 @@ const CONFIG = {
   },
   
   PRESET_SIZES: {
-    "square-1k": { name: "方形 1024x1024", width: 1024, height: 1024 },
-    "square-1.5k": { name: "方形 1536x1536", width: 1536, height: 1536 },
-    "square-2k": { name: "方形 2048x2048", width: 2048, height: 2048 },
-    "portrait-9-16-hd": { name: "竖屏 9:16 HD", width: 1080, height: 1920 },
-    "landscape-16-9-hd": { name: "横屏 16:9 HD", width: 1920, height: 1080 },
-    "instagram-square": { name: "Instagram 方形", width: 1080, height: 1080 },
-    "wallpaper-fhd": { name: "桌布 Full HD", width: 1920, height: 1080 },
-    "portrait-3-4": { name: "竖屏 3:4", width: 768, height: 1024 },
-    "portrait-4-5": { name: "竖屏 4:5", width: 1080, height: 1350 },
-    "landscape-4-3": { name: "横屏 4:3", width: 1024, height: 768 },
-    "landscape-3-2": { name: "横屏 3:2", width: 1200, height: 800 },
-    "cinematic-21-9": { name: "电影感 21:9", width: 1920, height: 822 }
+    "square-1k": { name: "정사각형 1024x1024", width: 1024, height: 1024 },
+    "square-1.5k": { name: "정사각형 1536x1536", width: 1536, height: 1536 },
+    "square-2k": { name: "정사각형 2048x2048", width: 2048, height: 2048 },
+    "portrait-9-16-hd": { name: "세로 9:16 HD", width: 1080, height: 1920 },
+    "landscape-16-9-hd": { name: "가로 16:9 HD", width: 1920, height: 1080 },
+    "instagram-square": { name: "Instagram 정사각형", width: 1080, height: 1080 },
+    "wallpaper-fhd": { name: "배경화면 Full HD", width: 1920, height: 1080 },
+    "portrait-3-4": { name: "세로 3:4", width: 768, height: 1024 },
+    "portrait-4-5": { name: "세로 4:5", width: 1080, height: 1350 },
+    "landscape-4-3": { name: "가로 4:3", width: 1024, height: 768 },
+    "landscape-3-2": { name: "가로 3:2", width: 1200, height: 800 },
+    "cinematic-21-9": { name: "시네마틱 21:9", width: 1920, height: 822 }
   },
   
   PROVIDERS: {
@@ -5157,7 +5157,7 @@ select:focus {
             <div class="control-group">
                 <label id="ratioLabel" style="margin-bottom:10px; display:block">畫布比例</label>
                 <div class="ratio-grid">
-                    <div class="ratio-item active" data-w="1024" data-h="1024" title="1:1 方形">
+                    <div class="ratio-item active" data-w="1024" data-h="1024" title="1:1 정사각형">
                         <div class="ratio-shape" style="width:14px; height:14px;"></div>
                     </div>
                     <div class="ratio-item" data-w="1080" data-h="1350" title="4:5 IG">
@@ -5166,7 +5166,7 @@ select:focus {
                     <div class="ratio-item" data-w="1080" data-h="1920" title="9:16 限動">
                         <div class="ratio-shape" style="width:9px; height:16px;"></div>
                     </div>
-                    <div class="ratio-item" data-w="1920" data-h="1080" title="16:9 桌布">
+                    <div class="ratio-item" data-w="1920" data-h="1080" title="16:9 배경화면">
                         <div class="ratio-shape" style="width:16px; height:9px;"></div>
                     </div>
                     <div class="ratio-item" data-w="2048" data-h="858" title="21:9 電影">
@@ -6133,7 +6133,7 @@ select:focus {
             const btn = document.getElementById('nanoGeneratePromptBtn');
             const originalText = btn.innerHTML;
             btn.disabled = true;
-            btn.innerHTML = '<span>⏳</span><span>生成中...</span>';
+            btn.innerHTML = '<span>⏳</span><span>생성 중...</span>';
             
             // 如果有上传图片但还没有 URL，先上传获取 URL
             if (this.uploadedImage && !this.uploadedImageUrl) {
@@ -6174,7 +6174,7 @@ select:focus {
                     document.getElementById('nanoApplyPromptBtn').style.display = 'flex';
                     this.showStatus(nanoT('prompt_generator_success'), 'success');
                 } else {
-                    throw new Error(data.error || '生成失敗');
+                    throw new Error(data.error || '생성 실패');
                 }
             } catch (error) {
                 console.error('Nano Prompt Generation Error:', error);
@@ -6203,7 +6203,7 @@ select:focus {
             
             if (!uploadResponse.ok) {
                 const errorData = await uploadResponse.json().catch(() => ({}));
-                throw new Error(errorData.error || '上传失败');
+                throw new Error(errorData.error || '업로드 실패');
             }
             
             const data = await uploadResponse.json();
@@ -6888,7 +6888,7 @@ function handleUI(request, env) {
       for (const [styleKey, styleConfig] of stylesInCategory) {
         const selected = styleKey === 'none' ? ' selected' : '';
         // Get translated style name
-        const styleName = typeof styleConfig.name === 'object' ? (styleConfig.name[currentLang] || styleConfig.name.zh || styleConfig.name) : styleConfig.name;
+        const styleName = typeof styleConfig.name === 'object' ? (styleConfig.name[currentLang] || styleConfig.name.en || styleConfig.name.zh || styleConfig.name) : styleConfig.name;
         styleOptionsHTML += `<option value="${styleKey}"${selected}>${styleConfig.icon} ${styleName}</option>`;
       }
       styleOptionsHTML += '</optgroup>';
@@ -7060,7 +7060,7 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
     </div>
     <div class="nav-menu">
         <a href="/nano" target="_blank" class="nav-btn nano-btn" style="border-color:rgba(250,204,21,0.5);color:#FACC15;margin-right:5px">
-            🍌 <span data-t="nav_nano">Nano版</span>
+            🍌 <span data-t="nav_nano">Nano</span>
         </a>
         <button class="nav-btn active" data-page="generate"><span data-t="nav_gen">🎨 이미지 생성</span></button>
         <button class="nav-btn" data-page="history"><span data-t="nav_his">📚 기록</span> <span id="historyCount" style="background:rgba(245,158,11,0.2);padding:2px 8px;border-radius:10px;font-size:11px">0</span></button>
@@ -8335,6 +8335,7 @@ document.addEventListener('click', function(e){
 });
 
 // SNS Caption generator
+document.addEventListener('DOMContentLoaded', function(){ updateModelOptions(); });
 document.addEventListener('DOMContentLoaded', function(){
   const btn = document.getElementById('snsCaptionBtn');
   if(!btn) return;
@@ -8514,17 +8515,17 @@ const PromptGenerator = {
         const btn = document.getElementById('generatePromptBtn');
         const originalText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<span>⏳</span><span>生成中...</span>';
+        btn.innerHTML = '<span>⏳</span><span>생성 중...</span>';
         
         // 如果有上传图片但还没有 URL，先上传获取 URL
         if (this.uploadedImage && !this.uploadedImageUrl) {
-            this.showStatus('正在上传图片...', 'loading');
+            this.showStatus('이미지 업로드 중...', 'loading');
             try {
                 this.uploadedImageUrl = await this.uploadImageAndGetUrl(this.uploadedImage);
-                this.showStatus('图片上传成功，正在生成提示词...', 'loading');
+                this.showStatus('이미지 업로드 완료, 프롬프트 생성 중...', 'loading');
             } catch (error) {
                 console.error('Image upload error:', error);
-                this.showStatus('❌ 图片上传失败: ' + error.message, 'error');
+                this.showStatus('❌ 이미지 업로드 실패: ' + error.message, 'error');
                 btn.disabled = false;
                 btn.innerHTML = originalText;
                 return;
@@ -8555,13 +8556,13 @@ const PromptGenerator = {
                 document.getElementById('generatedPrompt').textContent = data.prompt;
                 document.getElementById('generatedPromptContainer').style.display = 'block';
                 document.getElementById('applyPromptBtn').style.display = 'flex';
-                this.showStatus('✅ 提示詞生成成功！', 'success');
+                this.showStatus('✅ 프롬프트 생성 성공!', 'success');
             } else {
-                throw new Error(data.error || '生成失敗');
+                throw new Error(data.error || '생성 실패');
             }
         } catch (error) {
             console.error('Prompt Generation Error:', error);
-            this.showStatus('❌ 生成失敗: ' + error.message, 'error');
+            this.showStatus('❌ 생성 실패: ' + error.message, 'error');
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalText;
@@ -8586,12 +8587,12 @@ const PromptGenerator = {
         
         if (!uploadResponse.ok) {
             const errorData = await uploadResponse.json().catch(() => ({}));
-            throw new Error(errorData.error || '上传失败');
+            throw new Error(errorData.error || '업로드 실패');
         }
         
         const data = await uploadResponse.json();
         if (!data.url) {
-            throw new Error('未獲取到圖片 URL');
+            throw new Error('이미지 URL을 가져오지 못했습니다');
         }
         
         return data.url;
@@ -8603,7 +8604,7 @@ const PromptGenerator = {
         const promptTextarea = document.getElementById('prompt');
         if (promptTextarea) {
             promptTextarea.value = this.generatedPrompt;
-            this.showStatus('✓ 已應用到提示詞框', 'success');
+            this.showStatus('✓ 프롬프트에 적용됨', 'success');
             
             // 可選：清空輸入框
             document.getElementById('promptInput').value = '';
@@ -8615,13 +8616,13 @@ const PromptGenerator = {
         
         // 验证文件大小 (最大 32MB)
         if (file.size > 32 * 1024 * 1024) {
-            this.showStatus('圖片太大！最大 32MB', 'error');
+            this.showStatus('이미지가 너무 큽니다! 최대 32MB', 'error');
             return;
         }
         
         // 验证文件類型
         if (!file.type.startsWith('image/')) {
-            this.showStatus('請選擇圖片文件', 'error');
+            this.showStatus('이미지 파일을 선택하세요', 'error');
             return;
         }
         
@@ -8638,10 +8639,10 @@ const PromptGenerator = {
             previewDiv.style.display = 'block';
             clearBtn.style.display = 'block';
             
-            this.showStatus('✓ 图片已上传', 'success');
+            this.showStatus('✓ 이미지 업로드 완료', 'success');
         };
         reader.onerror = () => {
-            this.showStatus('圖片讀取失敗', 'error');
+            this.showStatus('이미지 읽기 실패', 'error');
         };
         reader.readAsDataURL(file);
     },
