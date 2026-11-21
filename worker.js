@@ -3513,6 +3513,9 @@ export default {
       else if (url.pathname === '/mcp') {
         response = await handleMCP(request, env, ctx);
       }
+      else if (url.pathname === '/api/premium-render') {
+        response = await handlePremiumRender(request, env);
+      }
       else if (url.pathname === '/health') {
         response = new Response(JSON.stringify({
           status: 'ok', 
@@ -6638,6 +6641,43 @@ async function handleMCP(request, env, ctx) {
     return new Response(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found: ' + name } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
   }
   return new Response(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+}
+
+async function handlePremiumRender(request, env) {
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405, headers: corsHeaders() });
+  }
+  // x402 scaffold: if no PAYMENT-SIGNATURE, return 402 with payment requirements
+  const paymentSig = request.headers.get('PAYMENT-SIGNATURE') || request.headers.get('X-Payment');
+  if (!paymentSig) {
+    const payTo = (env && env.PAY_TO) || '0x0000000000000000000000000000000000000000';
+    const network = (env && env.X402_NETWORK) || 'eip155:84532'; // Base Sepolia testnet
+    const requirements = {
+      x402Version: 2,
+      resource: { url: '/api/premium-render', description: 'Premium image render (FLUX.1 Schnell)', mimeType: 'image/jpeg' },
+      accepts: [{ scheme: 'exact', network: network, amount: '10000', asset: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', payTo: payTo, maxTimeoutSeconds: 60 }]
+    };
+    const b64 = btoa(JSON.stringify(requirements));
+    return new Response(JSON.stringify({ error: 'Payment Required', message: 'x402 payment required. Send PAYMENT-SIGNATURE header.' }), {
+      status: 402,
+      headers: { ...corsHeaders({ 'Content-Type': 'application/json' }), 'PAYMENT-REQUIRED': b64 }
+    });
+  }
+  // Payment provided: (scaffold) skip verification, run generation
+  try {
+    const body = await request.json();
+    const prompt = (body.prompt || '').trim();
+    if (!prompt) {
+      return new Response(JSON.stringify({ error: 'Prompt is required' }), { status: 400, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+    // Reuse internal generate logic via constructed request
+    const internalReq = new Request('http://localhost/_internal/generate', { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'x402-Client' }, body: JSON.stringify({ prompt, width: body.width || 512, height: body.height || 512, seed: body.seed }) });
+    const resp = await handleInternalGenerate(internalReq, env, ctx);
+    const buf = await resp.arrayBuffer();
+    return new Response(buf, { headers: { 'Content-Type': resp.headers.get('Content-Type') || 'image/jpeg', ...corsHeaders(), 'PAYMENT-RESPONSE': btoa(JSON.stringify({ success: true, network: (env && env.X402_NETWORK) || 'eip155:84532' })) } });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+  }
 }
 
 async function handleHealthCheck(request, env) {
