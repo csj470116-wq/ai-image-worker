@@ -5465,7 +5465,7 @@ select:focus {
     };
 
     const NANO_LANGUAGE_CONFIG = {
-        auto: { name: "自动检测", flag: "🌐", direction: "ltr" },
+        auto: { name: "자동 감지", flag: "🌐", direction: "ltr" },
         zh: { name: "简体中文", flag: "🇨🇳", direction: "ltr" },
         en: { name: "English", flag: "🇺🇸", direction: "ltr" },
         ja: { name: "日本語", flag: "🇯🇵", direction: "ltr" },
@@ -5482,7 +5482,7 @@ select:focus {
         const browserLang = navigator.language || navigator.userLanguage;
         const langCode = browserLang.split('-')[0];
         if (NANO_I18N[langCode]) return langCode;
-        return 'zh';
+        return 'ko';
     }
 
     // 检测并载入保存的语言
@@ -5508,7 +5508,7 @@ select:focus {
         const langCode = browserLang.split('-')[0];
         if (NANO_I18N[langCode]) return langCode;
         
-        return 'zh';
+        return 'ko';
     }
 
     // 初始化语言
@@ -6791,7 +6791,7 @@ function handleUI(request, env) {
     
     // 生成樣式選單 HTML
   const url = new URL(request.url);
-  const currentLang = url.searchParams.get('lang') || 'zh';
+  const currentLang = url.searchParams.get('lang') || 'ko';
   const styleCategories = CONFIG.STYLE_CATEGORIES;
   const stylePresets = CONFIG.STYLE_PRESETS;
   let styleOptionsHTML = '';
@@ -6979,12 +6979,12 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
         <a href="/nano" target="_blank" class="nav-btn nano-btn" style="border-color:rgba(250,204,21,0.5);color:#FACC15;margin-right:5px">
             🍌 <span data-t="nav_nano">Nano版</span>
         </a>
-        <button class="nav-btn active" data-page="generate"><span data-t="nav_gen">🎨 生成图像</span></button>
-        <button class="nav-btn" data-page="history"><span data-t="nav_his">📚 历史记录</span> <span id="historyCount" style="background:rgba(245,158,11,0.2);padding:2px 8px;border-radius:10px;font-size:11px">0</span></button>
+        <button class="nav-btn active" data-page="generate"><span data-t="nav_gen">🎨 이미지 생성</span></button>
+        <button class="nav-btn" data-page="history"><span data-t="nav_his">📚 기록</span> <span id="historyCount" style="background:rgba(245,158,11,0.2);padding:2px 8px;border-radius:10px;font-size:11px">0</span></button>
         <div style="position:relative">
             <button class="lang-btn" id="langSwitch">
-                <span id="currentLangFlag">🇹🇼</span>
-                <span id="currentLangName">简体中文</span>
+                <span id="currentLangFlag">🇰🇷</span>
+                <span id="currentLangName">한국어</span>
                 <span style="margin-left:4px">▼</span>
             </button>
             <div class="lang-dropdown" id="langDropdown">
@@ -7212,7 +7212,7 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
         <button type="button" id="generatePromptBtn"
                 style="flex: 1; background: linear-gradient(135deg, #8b5cf6, #3b82f6); color: #fff; border: none; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 6px;">
             <span>✨</span>
-            <span data-t="prompt_generator_generate">生成专业提示词</span>
+            <span data-t="prompt_generator_generate">전문 프롬프트 생성</span>
         </button>
         <button type="button" id="applyPromptBtn"
                 style="flex: 1; background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4); padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.3s; display: none;">
@@ -7222,7 +7222,7 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
     </div>
     
     <div id="generatedPromptContainer" style="display: none;">
-        <label style="font-size: 11px; color: #a78bfa; margin-bottom: 6px; display: block;" data-t="prompt_generator_generated">生成的专业提示词</label>
+        <label style="font-size: 11px; color: #a78bfa; margin-bottom: 6px; display: block;" data-t="prompt_generator_generated">생성된 전문 프롬프트</label>
         <div id="generatedPrompt"
              style="background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 12px; color: #e0e7ff; font-size: 13px; line-height: 1.6; max-height: 150px; overflow-y: auto; white-space: pre-wrap;"></div>
     </div>
@@ -7541,7 +7541,7 @@ const I18N={
 
 // 語言配置
 const LANGUAGE_CONFIG = {
-    auto: { name: "自动检测", flag: "🌐", direction: "ltr" },
+    auto: { name: "자동 감지", flag: "🌐", direction: "ltr" },
     zh: { name: "简体中文", flag: "🇨🇳", direction: "ltr" },
     en: { name: "English", flag: "🇺🇸", direction: "ltr" },
     ja: { name: "日本語", flag: "🇯🇵", direction: "ltr" },
@@ -7558,7 +7558,7 @@ function detectSystemLanguage() {
     const browserLang = navigator.language || navigator.userLanguage;
     const langCode = browserLang.split('-')[0];
     if (I18N[langCode]) return langCode;
-    return 'zh';
+    return 'ko';
 }
 
 // 偵測並載入保存的語言
@@ -7588,7 +7588,7 @@ function detectLanguage() {
     const langCode = browserLang.split('-')[0];
     if (I18N[langCode]) return langCode;
     
-    return 'zh';
+    return 'ko';
 }
 
 // 初始化語言
