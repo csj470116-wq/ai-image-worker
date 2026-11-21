@@ -6894,8 +6894,11 @@ async function callHFSpace(space, prompt, width, height, negative) {
 
 async function generateAdultImage(prompt, width, height, ctx, userToken) {
   // Auto-enhance for face/hands/body (invisible to user)
-  const QUALITY_SUFFIX = ', perfect anatomy, beautiful symmetrical face, detailed eyes, natural hands, five fingers, detailed skin texture, elegant proportions, professional photography, masterpiece, best quality, sharp focus';
-  const NEGATIVE = 'bad hands, extra fingers, missing fingers, fused fingers, deformed hands, mutated fingers, bad anatomy, disproportionate body, asymmetrical face, deformed eyes, blurry face, low quality, worst quality, watermark, text, signature';
+  const wantsFullBody = /전신|full.?body|head.?to.?toe|whole.?body|전체|full.?figure/i.test(prompt);
+  const QUALITY_SUFFIX = wantsFullBody
+    ? ', full body shot, head to toe, entire figure visible from head to feet, complete standing silhouette, not cropped, no close-up, perfect anatomy, natural hands, five fingers, natural feet, detailed skin texture, elegant proportions, professional photography, masterpiece, best quality'
+    : ', perfect anatomy, beautiful symmetrical face, detailed eyes, natural hands, five fingers, detailed skin texture, elegant proportions, professional photography, masterpiece, best quality, sharp focus';
+  const NEGATIVE = 'bad hands, extra fingers, missing fingers, fused fingers, deformed hands, mutated fingers, bad anatomy, disproportionate body, asymmetrical face, deformed eyes, blurry face, low quality, worst quality, watermark, text, signature' + (wantsFullBody ? ', cropped, cut off, close-up, portrait only, face only, half body' : '');
   const enhancedPrompt = prompt + QUALITY_SUFFIX;
 
   // 1) Replicate FLUX-dev (high quality, priority) (free limited runs) - if token configured
@@ -6905,7 +6908,7 @@ async function generateAdultImage(prompt, width, height, ctx, userToken) {
       const rr = await fetchWithTimeout('https://api.replicate.com/v1/models/black-forest-labs/flux-dev/predictions', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + effectiveReplicateToken, 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
-        body: JSON.stringify({ input: { prompt: enhancedPrompt, width: Math.min(width,1024), height: Math.min(height,1024), num_outputs: 1, output_format: 'webp' } })
+        body: JSON.stringify({ input: { prompt: enhancedPrompt, aspect_ratio: (wantsFullBody ? '9:16' : '1:1'), num_outputs: 1, output_format: 'webp', disable_safety_checker: true } })
       }, 120000);
       if (rr.ok) {
         let pred = await rr.json();
