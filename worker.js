@@ -3815,14 +3815,15 @@ Rules: caption in the same language as the description; 8 hashtags mixing Korean
     let hashtags = [];
     if (env && env.AI) {
       try {
-        const res = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
+        const res = await env.AI.run('@cf/ibm-granite/granite-4.0-h-micro', {
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
           max_tokens: 150
         });
-        const rawResp = (res && (res.response || res.result || res.text)) || '';
+        let rawResp = (res && (res.response || res.result || res.text)) || '';
+        if (!rawResp && res && res.choices && res.choices[0] && res.choices[0].message) rawResp = res.choices[0].message.content || '';
         const text = (typeof rawResp === 'string') ? rawResp : JSON.stringify(rawResp || '');
         let parsed = null;
         try {
@@ -4032,13 +4033,19 @@ Rules:
         generatedPrompt = (aiResp && (typeof aiResp === 'string' ? aiResp : (aiResp.response || aiResp.description || aiResp.text))) || '';
     } else {
         // 텍스트 기반 프롬프트 최적화 (Llama 3.3 70B Instruct FP8 Fast)
-        const aiResp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
+        // granite responds reliably to messages array (same as caption endpoint)
+        const aiResp = await env.AI.run('@cf/ibm-granite/granite-4.0-h-micro', {
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: textPrompt }
-            ]
+            ],
+            max_tokens: 200
         });
-        generatedPrompt = (aiResp && aiResp.response) || '';
+        generatedPrompt = (aiResp && (aiResp.response || aiResp.result || aiResp.text)) || '';
+        if (!generatedPrompt && aiResp && aiResp.choices && aiResp.choices[0] && aiResp.choices[0].message) {
+            generatedPrompt = aiResp.choices[0].message.content || '';
+        }
+        if (typeof generatedPrompt !== 'string') generatedPrompt = JSON.stringify(generatedPrompt);
     }
     console.log('✅ Generated prompt:', {
         length: generatedPrompt.length,
