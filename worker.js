@@ -2809,93 +2809,106 @@ class WorkersAIProvider {
 
   async generate(prompt, options, logger) {
     const modelId = (options && options.model) || 'flux-1-schnell';
-    const WA_MODEL_MAP = { 'flux-1-schnell': '@cf/black-forest-labs/flux-1-schnell', 'phoenix-1.0': '@cf/leonardo/phoenix-1.0' };
+    const WA_MODEL_MAP = {
+      'flux-1-schnell': '@cf/black-forest-labs/flux-1-schnell',
+      'phoenix-1.0': '@cf/leonardo/phoenix-1.0',
+      'flux-2-klein-4b': '@cf/black-forest-labs/flux-2-klein-4b'
+    };
     const waModelId = WA_MODEL_MAP[modelId] || '@cf/black-forest-labs/flux-1-schnell';
-    const seedCapable = (modelId === 'phoenix-1.0');
     const requestedSeed = (typeof options?.seed === 'number' && options.seed > 0) ? options.seed : null;
-    const modelConfig = this.config.models.find(m => m.id === modelId);
-    if (!modelConfig) throw new Error(`모델 "${modelId}"을 찾을 수 없습니다`);
+    const seedCapable = (modelId === 'phoenix-1.0'); // flux-2-klein also supports seed but handled in multipart branch
+    const isKlein = (modelId === 'flux-2-klein-4b');
+
     if (!this.env.AI) throw new Error('Workers AI 바인딩(env.AI)을 사용할 수 없습니다');
 
-    const steps = Math.min(Math.max(parseInt(options.steps) || 4, 1), 8);
-    let aiInput;
+    let raw;
+    let imageBuffer;
+    let contentType = 'image/jpeg';
+
     if (modelId === 'phoenix-1.0') {
-      aiInput = {
+      // Phoenix: JSON input, ReadableStream (JPEG) output
+      const steps = Math.min(Math.max(parseInt(options.steps) || 25, 1), 50);
+      const aiInput = {
         prompt: String(options.prompt || prompt).slice(0, 2048),
-        num_steps: Math.min(Math.max(parseInt(options.steps) || 25, 1), 50),
+        num_steps: steps,
         width: options.width || 1024,
         height: options.height || 1024
       };
       if (requestedSeed) aiInput.seed = requestedSeed;
       if (options.negativePrompt) aiInput.negative_prompt = options.negativePrompt;
       if (options.guidance) aiInput.guidance = options.guidance;
+      logger.info('Workers AI generation start', { model: modelId, steps });
+      raw = await this.env.AI.run(waModelId, aiInput);
+      const extracted = await extractImageFromAIResponse(raw);
+      if (!extracted || !extracted.buffer) throw new Error('Workers AI 응답에서 이미지를 찾을 수 없습니다');
+      imageBuffer = extracted.buffer;
+      contentType = 'image/jpeg';
+    } else if (isKlein) {
+      // FLUX.2 klein: multipart input, {image: base64} output, seed + multi-ref (<=4, <512x512)
+      const form = new FormData();
+      form.append('prompt', String(options.prompt || prompt).slice(0, 2048));
+      form.append('width', String(options.width || 1024));
+      form.append('height', String(options.height || 1024));
+      form.append('guidance', String(options.guidance || 3.5));
+      if (requestedSeed) form.append('seed', String(requestedSeed));
+      // multi-ref images (<512x512): fetch and append as input_image_0..N
+      const refs = Array.isArray(options.referenceImages) ? options.referenceImages.slice(0, 4) : [];
+      let refIdx = 0;
+      for (const url of refs) {
+        try {
+          const r = await fetch(url);
+          if (r.ok) {
+            const blob = await r.blob();
+            form.append('input_image_' + refIdx, blob, 'ref' + refIdx + '.png');
+            refIdx++;
+          }
+        } catch (e) { logger.info('ref fetch failed', { url, err: e.message }); }
+      }
+      logger.info('Workers AI generation start', { model: modelId, refs: refIdx });
+      const formResponse = new Response(form);
+      raw = await this.env.AI.run(waModelId, { multipart: { body: formResponse.body, contentType: formResponse.headers.get('content-type') } });
+      if (raw && typeof raw.image === 'string') {
+        imageBuffer = base64ToArrayBuffer(raw.image);
+      } else if (raw instanceof ArrayBuffer) {
+        imageBuffer = raw;
+      } else {
+        const extracted = await extractImageFromAIResponse(raw);
+        if (!extracted || !extracted.buffer) throw new Error('Workers AI 응답에서 이미지를 찾을 수 없습니다');
+        imageBuffer = extracted.buffer;
+      }
+      contentType = 'image/png';
     } else {
-      aiInput = {
+      // FLUX.1 Schnell: JSON input {prompt, steps}, no seed (schema rejects it)
+      const steps = Math.min(Math.max(parseInt(options.steps) || 4, 1), 8);
+      const aiInput = {
         prompt: String(options.prompt || prompt).slice(0, 2048),
         steps
       };
-    }
-
-    logger.info('Workers AI generation start', { model: modelId, steps });
-
-    const raw = await this.env.AI.run(waModelId, aiInput);
-
-    let imageBuffer;
-    if (raw && typeof raw.image === 'string') {
-      imageBuffer = base64ToArrayBuffer(raw.image);
-    } else if (raw instanceof ArrayBuffer) {
-      imageBuffer = raw;
-    } else if (raw && raw.image instanceof ArrayBuffer) {
-      imageBuffer = raw.image;
-    } else if (raw && raw.image) {
-      imageBuffer = new Uint8Array(raw.image).buffer;
-    } else if (raw && typeof raw.getReader === 'function') {
-      // ReadableStream (e.g. Phoenix 1.0 returns binary JPEG stream)
-      const reader = raw.getReader();
-      const chunks = [];
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-      }
-      const total = chunks.reduce((n, c) => n + (c ? c.length : 0), 0);
-      const buf = new Uint8Array(total);
-      let off = 0;
-      for (const c of chunks) { if (c) { buf.set(c, off); off += c.length; } }
-      imageBuffer = buf.buffer;
-    } else if (raw && raw.body && typeof raw.body.getReader === 'function') {
-      const reader = raw.body.getReader();
-      const chunks = [];
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-      }
-      const total = chunks.reduce((n, c) => n + (c ? c.length : 0), 0);
-      const buf = new Uint8Array(total);
-      let off = 0;
-      for (const c of chunks) { if (c) { buf.set(c, off); off += c.length; } }
-      imageBuffer = buf.buffer;
-    } else {
-      throw new Error('Workers AI 응답에서 이미지를 찾을 수 없습니다');
+      logger.info('Workers AI generation start', { model: modelId, steps });
+      raw = await this.env.AI.run(waModelId, aiInput);
+      const extracted = await extractImageFromAIResponse(raw);
+      if (!extracted || !extracted.buffer) throw new Error('Workers AI 응답에서 이미지를 찾을 수 없습니다');
+      imageBuffer = extracted.buffer;
+      contentType = 'image/jpeg';
     }
 
     return {
       imageData: imageBuffer,
-      contentType: 'image/jpeg',
+      contentType: contentType,
       model: modelId,
-      seed: (requestedSeed && seedCapable) ? requestedSeed : Math.floor(Math.random() * 1000000),
+      seed: (requestedSeed && (modelId === 'phoenix-1.0' || modelId === 'flux-2-klein-4b')) ? requestedSeed : Math.floor(Math.random() * 1000000),
       width: options.width || 1024,
       height: options.height || 1024,
       quality_mode: options.qualityMode || 'standard',
       style: options.style || 'none',
-      style_name: 'FLUX.1 Schnell',
-      style_category: 'flux',
+      style_name: (modelId === 'phoenix-1.0') ? 'Leonardo Phoenix' : (modelId === 'flux-2-klein-4b' ? 'FLUX.2 Klein 4B' : 'FLUX.1 Schnell'),
+      style_category: (modelId === 'phoenix-1.0') ? 'leonardo' : (modelId === 'flux-2-klein-4b' ? 'flux' : 'flux'),
       generation_mode: 'WorkersAI',
       authenticated: true,
       from_cache: false
     };
   }
+
 }
 
 class PollinationsProvider {
@@ -4128,6 +4141,17 @@ async function handleInternalGenerate(request, env, ctx) {
        if (reqProvider === 'workersai' && reqModel === 'flux-1-schnell') {
          body.model = 'phoenix-1.0';
          logger.add('\U0001f331 Seed routing', { note: 'WorkersAI FLUX.1 Schnell rejects seed; routing to Phoenix 1.0 (seed-capable, free)', seed: seedValue });
+       }
+     }
+
+     // Seed-aware model routing: FLUX.1 Schnell rejects 'seed' (schema: additionalProperties=false).
+     // Route seed requests to Phoenix 1.0 (Workers AI, free, supports seed) for full reproducibility.
+     if (seedValue !== -1) {
+       const reqProvider = (body.provider || 'workersai').toLowerCase();
+       const reqModel = body.model || 'flux-1-schnell';
+       if (reqProvider === 'workersai' && reqModel === 'flux-1-schnell') {
+         body.model = 'phoenix-1.0';
+         logger.add('\U0001f331 Seed routing', { note: 'FLUX.1 Schnell rejects seed; routing to Phoenix 1.0 (seed-capable, free)', seed: seedValue });
        }
      }
 
