@@ -3516,6 +3516,9 @@ export default {
       else if (url.pathname === '/api/premium-render') {
         response = await handlePremiumRender(request, env);
       }
+      else if (url.pathname === '/api/history') {
+        response = await handleHistory(request, env);
+      }
       else if (url.pathname === '/health') {
         response = new Response(JSON.stringify({
           status: 'ok', 
@@ -6680,6 +6683,45 @@ async function handlePremiumRender(request, env) {
   }
 }
 
+async function handleHistory(request, env) {
+  if (!env || !env.DB) {
+    return new Response(JSON.stringify({ error: 'D1 binding unavailable' }), { status: 503, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+  }
+  try {
+    if (request.method === 'GET') {
+      const url = new URL(request.url);
+      const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
+      const rows = await env.DB.prepare('SELECT id, prompt, model, seed, style, width, height, created_at, image_url FROM user_requests WHERE status = ? ORDER BY created_at DESC LIMIT ?').bind('success', limit).all();
+      return new Response(JSON.stringify({ success: true, items: rows.results || [] }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+    if (request.method === 'POST') {
+      const body = await request.json();
+      const prompt = (body.prompt || '').trim();
+      if (!prompt) {
+        return new Response(JSON.stringify({ error: 'Prompt is required' }), { status: 400, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+      }
+      await env.DB.prepare('INSERT INTO user_requests (ip_address, provider, model, prompt, width, height, style, seed, status, image_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
+        'anonymous', body.provider || 'workersai', body.model || 'flux-1-schnell', prompt,
+        body.width || 512, body.height || 512, body.style || 'none', body.seed || -1,
+        'success', body.image_url || null, new Date().toISOString()
+      ).run();
+      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+    if (request.method === 'DELETE') {
+      const url = new URL(request.url);
+      const id = url.searchParams.get('id');
+      if (!id) {
+        return new Response(JSON.stringify({ error: 'id required' }), { status: 400, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+      }
+      await env.DB.prepare('DELETE FROM user_requests WHERE id = ?').bind(id).run();
+      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+    return new Response('Method Not Allowed', { status: 405, headers: corsHeaders() });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+  }
+}
+
 async function handleHealthCheck(request, env) {
   const startTime = Date.now();
   
@@ -7974,6 +8016,12 @@ async function addToHistory(item){
     await saveToDB(record);
 }
 
+async function saveHistoryToD1(item){
+  try {
+    await fetch('/api/history', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: item.prompt, model: item.model, seed: item.seed, style: item.style, width: item.width, height: item.height, image_url: item.url || item.image }) });
+  } catch(e){ /* best-effort */ }
+}
+
 async function updateHistoryDisplay(){
     const history = await getHistoryFromDB();
     const list = document.getElementById('historyList');
@@ -8130,6 +8178,7 @@ document.getElementById('generateForm').addEventListener('submit',async(e)=>{
                 const realSeed = res.headers.get('X-Seed');
                 const item={ image:base64, prompt, model:res.headers.get('X-Model'), seed: realSeed, style:res.headers.get('X-Style') };
                 await addToHistory(item);
+                saveHistoryToD1(item);
                 displayResult([item]);
                 
                 // Determine cooldown based on provider
@@ -8140,7 +8189,7 @@ document.getElementById('generateForm').addEventListener('submit',async(e)=>{
         }else{
             const data=await res.json();
             if(data.error) throw new Error(data.error.message);
-            for(const d of data.data){ const item={...d, prompt}; await addToHistory(item); items.push(item); }
+            for(const d of data.data){ const item={...d, prompt}; await addToHistory(item); saveHistoryToD1(item); items.push(item); }
             displayResult(items);
             
             // Determine cooldown based on provider
