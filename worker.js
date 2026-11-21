@@ -271,7 +271,8 @@ const CONFIG = {
       },
       models: [
         { id: "flux-1-schnell", name: "FLUX.1 Schnell ⚡", confirmed: true, category: "flux", description: "12B FLUX Schnell, 초고속, 무료 (Apache-2.0)", max_size: 2048, pricing: { image_price: 0, currency: "free" } },
-        { id: "phoenix-1.0", name: "Phoenix 1.0 🎨 (seed-capable)", confirmed: true, category: "leonardo", description: "Leonardo Phoenix, seed 지원, 무료", max_size: 2048, pricing: { image_price: 0, currency: "free" }, supports_seed: true }
+        { id: "phoenix-1.0", name: "Phoenix 1.0 🎨 (seed-capable)", confirmed: true, category: "leonardo", description: "Leonardo Phoenix, seed 지원, 무료", max_size: 2048, pricing: { image_price: 0, currency: "free" }, supports_seed: true },
+        { id: "flux-2-klein-4b", name: "FLUX.2 Klein 4B ⚡ (multi-ref, seed)", confirmed: true, category: "flux", description: "FLUX.2 Klein 4B, multi-ref (<=4), seed 지원, 무료", max_size: 1024, pricing: { image_price: 0, currency: "free" }, supports_seed: true, supports_reference_images: true, max_reference_images: 4 }
       ],
       rate_limit: null,
       max_size: { width: 1024, height: 1024 }
@@ -4133,16 +4134,6 @@ async function handleInternalGenerate(request, env, ctx) {
     
      
      // Seed-aware model routing: Workers AI (FLUX.1 Schnell) rejects 'seed' (schema: additionalProperties=false).
-     // To keep full seeded reproducibility WITHOUT reducing scope, route seed requests to a seed-capable
-     // Workers AI model: stable-diffusion-xl-lightning (free, supports seed). Non-seed requests keep FLUX.1 Schnell.
-     if (seedValue !== -1) {
-       const reqProvider = (body.provider || 'workersai').toLowerCase();
-       const reqModel = body.model || 'flux-1-schnell';
-       if (reqProvider === 'workersai' && reqModel === 'flux-1-schnell') {
-         body.model = 'phoenix-1.0';
-         logger.add('\U0001f331 Seed routing', { note: 'WorkersAI FLUX.1 Schnell rejects seed; routing to Phoenix 1.0 (seed-capable, free)', seed: seedValue });
-       }
-     }
 
      // Seed-aware model routing: FLUX.1 Schnell rejects 'seed' (schema: additionalProperties=false).
      // Route seed requests to Phoenix 1.0 (Workers AI, free, supports seed) for full reproducibility.
