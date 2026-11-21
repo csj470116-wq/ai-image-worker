@@ -3436,6 +3436,9 @@ export default {
       else if (url.pathname === '/api/generate-prompt') {
         response = await handlePromptGeneration(request, env);
       }
+      else if (url.pathname === '/heartbeat') {
+        response = await handleHeartbeat(request, env);
+      }
       else if (url.pathname === '/health') {
         response = new Response(JSON.stringify({
           status: 'ok', 
@@ -6347,7 +6350,7 @@ async function handleHealthCheck(request, env) {
     // Test rate limiting functionality
     const testIp = 'health-check';
     const rl = new EnhancedRateLimiter(env);
-    const rateLimitResult = await rl.checkRateLimit(testIp, 1000, 10); // 10 requests
+    const rateLimitResult = await rl.checkLimit(testIp, null); // rate limit func check
     checks.checks.rate_limit_functionality = rateLimitResult.allowed !== undefined;
     
     // Test cache functionality
