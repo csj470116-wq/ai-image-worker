@@ -7087,6 +7087,18 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
     <button type="button" id="overlayDownloadBtn" style="padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;font-size:12px;">다운로드</button>
   </div>
 </div>
+<div class="form-group" style="margin-top:12px; border-top:1px solid rgba(255,255,255,0.1); padding-top:12px;">
+  <label style="font-size:12px;color:#9ca3af;margin-bottom:6px;display:block;">🎨 인페인팅 (무료, 캔버스)</label>
+  <canvas id="inpaintCanvas" width="512" height="512" style="width:100%;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:#111;cursor:crosshair;" title="클릭하여 이미지 선택 후 마스크 그리기"></canvas>
+  <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap;">
+    <button type="button" id="inpaintLoadBtn" style="padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;font-size:11px;">이미지 선택</button>
+    <button type="button" id="inpaintBrushBtn" style="padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;font-size:11px;">브러시</button>
+    <button type="button" id="inpaintEraserBtn" style="padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;font-size:11px;">지우개</button>
+    <button type="button" id="inpaintRunBtn" style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid rgba(139,92,246,0.4);background:rgba(139,92,246,0.15);color:#a78bfa;cursor:pointer;font-size:11px;">인페인팅 실행</button>
+    <button type="button" id="inpaintDownloadBtn" style="padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#e5e7eb;cursor:pointer;font-size:11px;">다운로드</button>
+  </div>
+  <div style="font-size:10px;color:#9ca3af;margin-top:4px;">이미지 클릭 → 마스크 그리기(흰색=채울 영역) → 인페인팅 실행 (무료, 브라우저)</div>
+</div>
 <div class="form-group" style="margin-top:8px;">
   <button type="button" id="snsCaptionBtn" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid rgba(139,92,246,0.4);background:rgba(139,92,246,0.15);color:#a78bfa;font-size:12px;cursor:pointer;">📱 SNS 캡션 + 해시태그 생성</button>
   <div id="snsCaptionResult" style="display:none;margin-top:8px;padding:10px;border-radius:8px;background:rgba(0,0,0,0.25);font-size:12px;">
@@ -8252,6 +8264,95 @@ document.addEventListener('DOMContentLoaded', function(){
     const a = document.createElement('a');
     a.href = canvas.toDataURL('image/png');
     a.download = 'korean-text-overlay.png';
+    a.click();
+  });
+});
+
+// Client-side canvas inpainting (free, pixel-averaging fallback)
+document.addEventListener('DOMContentLoaded', function(){
+  const canvas = document.getElementById('inpaintCanvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let baseImg = null;
+  let maskCanvas = document.createElement('canvas');
+  maskCanvas.width = canvas.width; maskCanvas.height = canvas.height;
+  const mctx = maskCanvas.getContext('2d');
+  let drawing = false;
+  let brushSize = 20;
+  let erasing = false;
+
+  function loadImage(src){
+    const img = new Image();
+    img.onload = function(){ baseImg = img; ctx.drawImage(img,0,0,canvas.width,canvas.height); mctx.clearRect(0,0,maskCanvas.width,maskCanvas.height); };
+    img.src = src;
+  }
+
+  const loadBtn = document.getElementById('inpaintLoadBtn');
+  if(loadBtn) loadBtn.addEventListener('click', function(){
+    const inp = document.createElement('input'); inp.type='file'; inp.accept='image/*';
+    inp.onchange = function(e){ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=function(ev){ loadImage(ev.target.result); }; r.readAsDataURL(f); };
+    inp.click();
+  });
+
+  function drawAt(x,y){
+    const r = brushSize/2;
+    mctx.fillStyle = erasing ? 'black' : 'white';
+    mctx.beginPath(); mctx.arc(x,y,r,0,Math.PI*2); mctx.fill();
+    // visual overlay
+    ctx.fillStyle = erasing ? 'rgba(0,0,0,0.6)' : 'rgba(255,0,0,0.4)';
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  }
+
+  canvas.addEventListener('mousedown', function(e){ drawing=true; const rect=canvas.getBoundingClientRect(); drawAt(e.clientX-rect.left, e.clientY-rect.top); });
+  canvas.addEventListener('mousemove', function(e){ if(!drawing) return; const rect=canvas.getBoundingClientRect(); drawAt(e.clientX-rect.left, e.clientY-rect.top); });
+  canvas.addEventListener('mouseup', function(){ drawing=false; });
+  canvas.addEventListener('mouseleave', function(){ drawing=false; });
+
+  const brushBtn = document.getElementById('inpaintBrushBtn');
+  if(brushBtn) brushBtn.addEventListener('click', function(){ erasing=false; brushBtn.style.background='rgba(139,92,246,0.3)'; document.getElementById('inpaintEraserBtn').style.background='rgba(255,255,255,0.05)'; });
+  const eraserBtn = document.getElementById('inpaintEraserBtn');
+  if(eraserBtn) eraserBtn.addEventListener('click', function(){ erasing=true; eraserBtn.style.background='rgba(139,92,246,0.3)'; brushBtn.style.background='rgba(255,255,255,0.05)'; });
+
+  const runBtn = document.getElementById('inpaintRunBtn');
+  if(runBtn) runBtn.addEventListener('click', function(){
+    if(!baseImg){ alert('먼저 이미지를 선택하세요'); return; }
+    // pixel-averaging inpainting
+    const w = canvas.width, h = canvas.height;
+    const imgData = ctx.getImageData(0,0,w,h);
+    const maskData = mctx.getImageData(0,0,w,h);
+    const out = new Uint8ClampedArray(imgData.data);
+    // For each masked pixel, sample unmasked neighbors (inverse distance)
+    for(let y=0;y<h;y++){
+      for(let x=0;x<w;x++){
+        const i = (y*w+x)*4;
+        if(maskData.data[i] > 127){ // masked (white)
+          let r=0,g=0,b=0,weight=0;
+          const radius = 12;
+          for(let dy=-radius;dy<=radius;dy++){
+            for(let dx=-radius;dx<=radius;dx++){
+              const nx=x+dx, ny=y+dy;
+              if(nx<0||ny<0||nx>=w||ny>=h) continue;
+              const mi=(ny*w+nx)*4;
+              if(maskData.data[mi] > 127) continue; // skip masked
+              const dist = Math.sqrt(dx*dx+dy*dy) || 1;
+              const wgt = 1/(dist*dist);
+              r += imgData.data[mi]*wgt; g += imgData.data[mi+1]*wgt; b += imgData.data[mi+2]*wgt; weight += wgt;
+            }
+          }
+          if(weight > 0){ out[i]=r/weight; out[i+1]=g/weight; out[i+2]=b/weight; out[i+3]=255; }
+        }
+      }
+    }
+    const result = new ImageData(out, w, h);
+    ctx.putImageData(result, 0, 0);
+    alert('인페인팅 완료 (픽셀 평균 방식, 무료)');
+  });
+
+  const dlBtn = document.getElementById('inpaintDownloadBtn');
+  if(dlBtn) dlBtn.addEventListener('click', function(){
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = 'inpaint-result.png';
     a.click();
   });
 });
