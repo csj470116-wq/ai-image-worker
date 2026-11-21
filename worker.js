@@ -3321,6 +3321,41 @@ class InfipProvider {
   }
 }
 
+// ====== Provider Circuit Breaker + Exponential Backoff ======
+// Module-level state persists across requests within a Worker isolate.
+const PROVIDER_CIRCUIT = {};
+const CIRCUIT_FAILURE_THRESHOLD = 3;
+const CIRCUIT_COOLDOWN_MS = 60000;
+
+function sleepForRetry(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+function isPermanentClientError(error) {
+  const m = String((error && error.message) || error || '').toLowerCase();
+  if (/authentication failed|invalid or missing api key|api key may lack|invalid api v1 key/i.test(m)) return true;
+  if (/invalid file type|invalid image|prompt is required|prompt too long|malicious/i.test(m)) return true;
+  if (/찾을 수 없습니다|모델 .* 未找到|model .* not found/i.test(m)) return true;
+  if (/\b400\b|\b401\b|\b403\b|\b422\b|status_code.*4\d\d/i.test(m)) return true;
+  return false;
+}
+function circuitIsOpen(provider) {
+  const st = PROVIDER_CIRCUIT[provider];
+  return !!(st && st.openUntil && Date.now() < st.openUntil);
+}
+function circuitRecordFailure(provider, error) {
+  // Permanent client errors are not the provider's fault -> do not trip the breaker.
+  if (isPermanentClientError(error)) return;
+  const st = PROVIDER_CIRCUIT[provider] || (PROVIDER_CIRCUIT[provider] = { failures: 0, openUntil: 0 });
+  st.failures += 1;
+  if (st.failures >= CIRCUIT_FAILURE_THRESHOLD) {
+    st.openUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
+    st.failures = 0;
+  }
+}
+function circuitRecordSuccess(provider) {
+  PROVIDER_CIRCUIT[provider] = { failures: 0, openUntil: 0 };
+}
+
 class MultiProviderRouter {
   constructor(apiKeys = {}, env = null) {
     this.providers = {};
@@ -3347,16 +3382,32 @@ class MultiProviderRouter {
   async generate(prompt, options, logger) {
     const tried = options && options.provider ? options.provider : CONFIG.DEFAULT_PROVIDER;
     let lastError = null;
+    let attempt = 0;
     const order = ['workersai', 'pollinations', 'infip'];
     const providersToTry = [tried].concat(order.filter(p => p !== tried && this.providers[p]));
     for (const p of providersToTry) {
+      // Circuit breaker: skip a provider that is cooling down after repeated failures.
+      if (circuitIsOpen(p)) {
+        logger.warn('Provider ' + p + ' circuit OPEN, skipping (cooldown)');
+        continue;
+      }
       try {
         const result = await this._generateWithProvider(prompt, Object.assign({}, options, { provider: p }), logger);
+        circuitRecordSuccess(p);
         if (p !== tried) logger.info('Fallback provider used: ' + p);
         return result;
       } catch (error) {
         lastError = error;
-        logger.error('Provider ' + p + ' failed' + (p === tried ? '' : ' (fallback)'), { error: error.message });
+        circuitRecordFailure(p, error);
+        logger.error('Provider ' + p + ' failed' + (p === tried ? '' : ' (fallback)'), {
+          error: error.message,
+          permanent: isPermanentClientError(error),
+          circuitFailures: (PROVIDER_CIRCUIT[p] || {}).failures || 0
+        });
+        // Exponential backoff + jitter before trying the next provider (bounded to 4s).
+        attempt += 1;
+        const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 4000) + Math.floor(Math.random() * 250);
+        await sleepForRetry(backoffMs);
       }
     }
     throw new Error(`All providers failed. Last error: ${lastError ? lastError.message : 'unknown'}`);
