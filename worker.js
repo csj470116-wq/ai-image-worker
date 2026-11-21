@@ -2880,7 +2880,7 @@ class WorkersAIProvider {
       contentType = 'image/png';
     } else {
       // FLUX.1 Schnell: JSON input {prompt, steps}, no seed (schema rejects it)
-      const steps = Math.min(Math.max(parseInt(options.steps) || 4, 1), 8);
+      const steps = Math.min(Math.max(parseInt(options.steps) || 4, 1), 4); // FLUX schnell max 4 steps (neuron cap)
       const aiInput = {
         prompt: String(options.prompt || prompt).slice(0, 2048),
         steps
@@ -3583,6 +3583,10 @@ export default {
       }
       else if (url.pathname === '/heartbeat') {
         response = await handleHeartbeat(request, env);
+      }
+      else if (url.pathname === '/icon-192.png') {
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192"><rect width="192" height="192" rx="40" fill="#0a0a0a"/><text x="96" y="130" font-size="100" text-anchor="middle">🎨</text></svg>';
+        response = new Response(svg, { headers: { 'Content-Type': 'image/svg+xml', ...corsHeaders() } });
       }
       else if (url.pathname === '/manifest.json') {
         response = handleManifest(request);
@@ -8215,13 +8219,10 @@ document.getElementById('generateForm').addEventListener('submit',async(e)=>{
     const isNSFW = document.getElementById('nsfwToggle').checked;
     const batchSize = parseInt(document.getElementById('batchSize').value) || 1;
     
-    // Auto-Set Quality to ULTRA for ALL models (Best Quality Policy)
-    let qualityMode = 'ultra'; 
-    console.log("Auto-switching to ULTRA quality for optimal results");
-    // Also update UI to reflect this if needed, but for now just send it to API
-    // If the element exists, we can try to update it visually:
+    // Neuron-efficient default: use user-selected quality, never force ULTRA.
     const qualityEl = document.getElementById('qualityMode');
-    if(qualityEl) qualityEl.value = 'ultra';
+    let qualityMode = qualityEl ? qualityEl.value : 'standard';
+    if(!qualityMode || qualityMode === 'ultra') qualityMode = 'standard';
     
     let finalNegative = document.getElementById('negativePrompt').value;
     if (isNSFW && document.getElementById('provider').value === 'infip') {
@@ -8246,7 +8247,7 @@ document.getElementById('generateForm').addEventListener('submit',async(e)=>{
                 provider: document.getElementById('provider').value,
                 api_key: document.getElementById('apiKey').value,
                 nsfw: isNSFW,
-                n: batchSize
+                n: batchSize, auto_hd: false
             })
         });
         
