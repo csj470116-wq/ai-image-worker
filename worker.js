@@ -4278,7 +4278,7 @@ async function handleInternalGenerate(request, env, ctx) {
     };
     
     // ====== 新增：AI增强功能 ======
-    if (CONFIG.AI_ENHANCEMENT.ENABLE_SMART_PROMPT_ANALYSIS) {
+    if (CONFIG.AI_ENHANCEMENT.ENABLE_SMART_PROMPT_ANALYSIS && body.nsfw !== true) {
       // 初始化AI增强管理器
       const aiManager = initAIEnhancementManager(env);
       
@@ -6896,9 +6896,9 @@ async function generateAdultImage(prompt, width, height, ctx, userToken) {
   // Auto-enhance for face/hands/body (invisible to user)
   const wantsFullBody = /전신|full.?body|head.?to.?toe|whole.?body|전체|full.?figure/i.test(prompt);
   const QUALITY_SUFFIX = wantsFullBody
-    ? ', full body shot, head to toe, entire figure visible from head to feet, complete standing silhouette, not cropped, no close-up, perfect anatomy, natural hands, five fingers, natural feet, detailed skin texture, elegant proportions, professional photography, masterpiece, best quality'
-    : ', perfect anatomy, beautiful symmetrical face, detailed eyes, natural hands, five fingers, detailed skin texture, elegant proportions, professional photography, masterpiece, best quality, sharp focus';
-  const NEGATIVE = 'bad hands, extra fingers, missing fingers, fused fingers, deformed hands, mutated fingers, bad anatomy, disproportionate body, asymmetrical face, deformed eyes, blurry face, low quality, worst quality, watermark, text, signature' + (wantsFullBody ? ', cropped, cut off, close-up, portrait only, face only, half body' : '');
+    ? ', full body photograph, head to toe, standing, beautiful young face, detailed eyes, natural skin tone, natural hands, five fingers, natural feet, elegant body proportions, soft lighting, photorealistic'
+    : ', beautiful face, detailed eyes, natural skin, natural hands, five fingers, photorealistic, soft lighting';
+  const NEGATIVE = 'low quality, worst quality, watermark, text, signature, bad hands, extra fingers, missing fingers, bad anatomy' + (wantsFullBody ? ', cropped, close-up, half body, dark silhouette, shadow figure, mannequin' : '');
   const enhancedPrompt = prompt + QUALITY_SUFFIX;
 
   // 1) Replicate FLUX-dev (high quality, priority) (free limited runs) - if token configured
