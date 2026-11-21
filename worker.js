@@ -3815,12 +3815,12 @@ Rules: caption in the same language as the description; 8 hashtags mixing Korean
     let hashtags = [];
     if (env && env.AI) {
       try {
-        const res = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+        const res = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
-          max_tokens: 300
+          max_tokens: 150
         });
         const rawResp = (res && (res.response || res.result || res.text)) || '';
         const text = (typeof rawResp === 'string') ? rawResp : JSON.stringify(rawResp || '');
@@ -4007,7 +4007,7 @@ Rules:
             aiResp = await env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
                 messages: visionMessages,
                 image: imageDataUri,
-                max_tokens: 300
+                max_tokens: 150
             });
         } catch (visionError) {
             const errMsg = String((visionError && visionError.message) || visionError);
@@ -4023,7 +4023,7 @@ Rules:
                 aiResp = await env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
                     messages: visionMessages,
                     image: imageDataUri,
-                    max_tokens: 300
+                    max_tokens: 150
                 });
             } else {
                 throw visionError;
@@ -4032,7 +4032,7 @@ Rules:
         generatedPrompt = (aiResp && (typeof aiResp === 'string' ? aiResp : (aiResp.response || aiResp.description || aiResp.text))) || '';
     } else {
         // 텍스트 기반 프롬프트 최적화 (Llama 3.3 70B Instruct FP8 Fast)
-        const aiResp = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+        const aiResp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: textPrompt }
