@@ -5205,10 +5205,10 @@ select:focus {
         <img id="lbImg" src="">
         <div class="lightbox-actions">
             <a id="lbDownload" class="action-btn" download="nano-banana-art.png" href="#">
-                <span id="lightboxSaveText">📥 保存图片</span>
+                <span id="lightboxSaveText">📥 이미지 저장</span>
             </a>
             <button class="action-btn" onclick="document.getElementById('lbClose').click()">
-                <span id="lightboxCloseText">❌ 关闭</span>
+                <span id="lightboxCloseText">❌ 닫기</span>
             </button>
         </div>
     </div>
@@ -5267,8 +5267,8 @@ select:focus {
             toast_no_prompt: "⚠️ 请输入提示词",
             toast_energy_depleted: "🚫 本小时能量已耗尽，请稍后再来！",
             toast_error: "❌ ",
-            lightbox_save: "📥 保存图片",
-            lightbox_close: "❌ 关闭"
+            lightbox_save: "📥 이미지 저장",
+            lightbox_close: "❌ 닫기"
         },
         en: {
             prompt_label: "Prompt",
@@ -6990,11 +6990,11 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
             <div class="lang-dropdown" id="langDropdown">
                 <div class="lang-option" data-lang="auto">
                     <span class="lang-flag">🌐</span>
-                    <span class="lang-name">自动检测</span>
+                    <span class="lang-name">자동 감지</span>
                 </div>
                 <div class="lang-option" data-lang="zh">
                     <span class="lang-flag">🇨🇳</span>
-                    <span class="lang-name">简体中文</span>
+                    <span class="lang-name">중국어(간체)</span>
                 </div>
                 <div class="lang-option" data-lang="en">
                     <span class="lang-flag">🇺🇸</span>
@@ -7002,7 +7002,7 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
                 </div>
                 <div class="lang-option" data-lang="ja">
                     <span class="lang-flag">🇯🇵</span>
-                    <span class="lang-name">日本語</span>
+                    <span class="lang-name">일본어</span>
                 </div>
                 <div class="lang-option" data-lang="ko">
                     <span class="lang-flag">🇰🇷</span>
@@ -7019,7 +7019,7 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
 <div id="generatePage" class="page active">
 <div class="main-content">
 <div class="left-panel">
-<div class="section-title" data-t="settings_title">⚙️ 生成参数</div>
+<div class="section-title" data-t="settings_title">⚙️ 생성 설정</div>
 <form id="generateForm">
 <div class="form-group">
     <label data-t="provider_label">API 공급자</label>
@@ -7077,10 +7077,10 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
         <div class="form-group">
             <label>배치 크기</label>
             <select id="batchSize">
-                <option value="1">1 张</option>
-                <option value="2">2 张</option>
-                <option value="3">3 张</option>
-                <option value="4">4 张</option>
+                <option value="1">1장</option>
+                <option value="2">2장</option>
+                <option value="3">3장</option>
+                <option value="4">4장</option>
             </select>
         </div>
     </div>
@@ -7205,7 +7205,7 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
     </div>
     
     <div style="font-size: 11px; color: #f59e0b; margin-bottom: 12px; background: rgba(245, 158, 11, 0.1); padding: 8px; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.2);" data-t="prompt_generator_tip">
-        💡 <strong>팁:</strong> 选择左侧的「艺术风格」后，生成器会自动融合该风格（如：赛博朋克、水墨画等）到提示词中，让画面更具艺术感！
+        💡 <strong>팁:</strong> 왼쪽의 '아트 스타일'을 선택하면 생성기가 해당 스타일(사이버펑크, 수묵화 등)을 자동으로 프롬프트에 혼합합니다.
     </div>
 
     <div style="display: flex; gap: 10px; margin-bottom: 12px;">
@@ -7217,7 +7217,7 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
         <button type="button" id="applyPromptBtn"
                 style="flex: 1; background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4); padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.3s; display: none;">
             <span>✓</span>
-            <span data-t="prompt_generator_apply">应用到提示词</span>
+            <span data-t="prompt_generator_apply">프롬프트에 적용</span>
         </button>
     </div>
     
@@ -7233,20 +7233,20 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
 <div id="historyPage" class="page">
 <div class="main-content" style="flex-direction:column;padding:20px">
 <div class="history-header">
-<div class="history-stats"><div class="stat-item"><div class="label" data-t="stat_total">📊 总记录数</div><div class="value" id="historyTotal">0</div></div><div class="stat-item"><div class="label" data-t="stat_storage">💾 存储空间 (永久)</div><div class="value" id="storageSize">0 KB</div></div></div>
-<div class="history-actions"><button class="btn btn-secondary" id="exportBtn" style="width:auto;padding:10px 20px" data-t="btn_export">📥 导出</button><button class="btn btn-danger" id="clearBtn" style="width:auto;padding:10px 20px" data-t="btn_clear">🗑️ 清空</button></div>
+<div class="history-stats"><div class="stat-item"><div class="label" data-t="stat_total">📊 총 기록 수</div><div class="value" id="historyTotal">0</div></div><div class="stat-item"><div class="label" data-t="stat_storage">💾 저장 공간 (영구)</div><div class="value" id="storageSize">0 KB</div></div></div>
+<div class="history-actions"><button class="btn btn-secondary" id="exportBtn" style="width:auto;padding:10px 20px" data-t="btn_export">📥 내보내기</button><button class="btn btn-danger" id="clearBtn" style="width:auto;padding:10px 20px" data-t="btn_clear">🗑️ 전체 삭제</button></div>
 </div>
-<div id="historyList" style="padding:0 20px"><p>Loading history...</p></div>
+<div id="historyList" style="padding:0 20px"><p>기록을 불러오는 중...</p></div>
 </div></div>
 <div id="imageModal" class="modal">
     <div class="modal-content" style="position:relative; display:flex; flex-direction:column; align-items:center;">
         <img id="modalImage" src="" style="max-height:85vh; margin-bottom:15px;">
         <div style="display:flex; gap:15px;">
             <a id="modalDownload" href="#" class="btn btn-primary" download="image.png" style="text-decoration:none; width:auto; padding:10px 25px;">
-                📥 保存图片
+                📥 이미지 저장
             </a>
             <button class="btn" onclick="document.getElementById('imageModal').classList.remove('show')" style="width:auto; background:rgba(255,255,255,0.1);">
-                ❌ 关闭
+                ❌ 닫기
             </button>
         </div>
     </div>
@@ -7849,12 +7849,12 @@ const DragDropHandler = {
     validateImageFile(file) {
         // 檢查文件類型
         if (!file.type.startsWith('image/')) {
-            return { valid: false, error: '請選擇圖片文件' };
+            return { valid: false, error: '이미지 파일을 선택하세요' };
         }
         
         // 檢查文件大小 (最大 32MB)
         if (file.size > 32 * 1024 * 1024) {
-            return { valid: false, error: '圖片太大！最大 32MB' };
+            return { valid: false, error: '이미지가 너무 큽니다! 최대 32MB' };
         }
         
         return { valid: true };
@@ -7865,7 +7865,7 @@ const DragDropHandler = {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = () => reject(new Error('文件讀取失敗'));
+            reader.onerror = () => reject(new Error('파일 읽기 실패'));
             reader.readAsDataURL(file);
         });
     }
@@ -7881,7 +7881,7 @@ DragDropHandler.initDropZone('imageDropZone', 'imageUpload', async (file) => {
 
     const dropZone = document.getElementById('imageDropZone');
     const originalContent = dropZone.innerHTML;
-    dropZone.innerHTML = '<div class="drag-icon">⏳</div><div class="drag-text">上传中...</div>';
+    dropZone.innerHTML = '<div class="drag-icon">⏳</div><div class="drag-text">업로드 중...</div>';
 
     try {
         const base64 = await DragDropHandler.readFileAsBase64(file);
@@ -7900,7 +7900,7 @@ DragDropHandler.initDropZone('imageDropZone', 'imageUpload', async (file) => {
                 const textarea = document.getElementById('referenceImages');
                 const currentVal = textarea.value.trim();
                 textarea.value = currentVal ? currentVal + ', ' + data.url : data.url;
-                dropZone.innerHTML = '<div class="drag-icon">✅</div><div class="drag-text">上传成功！</div>';
+                dropZone.innerHTML = '<div class="drag-icon">✅</div><div class="drag-text">업로드 성공!</div>';
                 setTimeout(() => {
                     dropZone.innerHTML = originalContent;
                 }, 2000);
@@ -7913,7 +7913,7 @@ DragDropHandler.initDropZone('imageDropZone', 'imageUpload', async (file) => {
         }
     } catch (error) {
         console.error("Upload error:", error);
-        dropZone.innerHTML = '<div class="drag-icon">❌</div><div class="drag-text">上传失败</div>';
+        dropZone.innerHTML = '<div class="drag-icon">❌</div><div class="drag-text">업로드 실패</div>';
         setTimeout(() => {
             dropZone.innerHTML = originalContent;
         }, 2000);
@@ -7933,7 +7933,7 @@ imageUpload.addEventListener('change', async (e) => {
 
     const dropZone = document.getElementById('imageDropZone');
     const originalContent = dropZone.innerHTML;
-    dropZone.innerHTML = '<div class="drag-icon">⏳</div><div class="drag-text">上传中...</div>';
+    dropZone.innerHTML = '<div class="drag-icon">⏳</div><div class="drag-text">업로드 중...</div>';
 
     try {
         // Convert to Base64
@@ -7966,7 +7966,7 @@ imageUpload.addEventListener('change', async (e) => {
                          const textarea = document.getElementById('referenceImages');
                          const currentVal = textarea.value.trim();
                          textarea.value = currentVal ? currentVal + ', ' + data.url : data.url;
-                         dropZone.innerHTML = '<div class="drag-icon">✅</div><div class="drag-text">上传成功！</div>';
+                         dropZone.innerHTML = '<div class="drag-icon">✅</div><div class="drag-text">업로드 성공!</div>';
                          setTimeout(() => { dropZone.innerHTML = originalContent; }, 2000);
                     } else {
                         throw new Error("Invalid response from server");
@@ -7977,14 +7977,14 @@ imageUpload.addEventListener('change', async (e) => {
                 }
             } catch (proxyError) {
                 console.error("Upload error:", proxyError);
-                dropZone.innerHTML = '<div class="drag-icon">❌</div><div class="drag-text">上传失败</div>';
+                dropZone.innerHTML = '<div class="drag-icon">❌</div><div class="drag-text">업로드 실패</div>';
                 setTimeout(() => { dropZone.innerHTML = originalContent; }, 2000);
             }
         };
         reader.readAsDataURL(file);
     } catch (err) {
         console.error(err);
-        dropZone.innerHTML = '<div class="drag-icon">❌</div><div="drag-text">上传失败</div>';
+        dropZone.innerHTML = '<div class="drag-icon">❌</div><div class="drag-text">업로드 실패</div>';
         setTimeout(() => { dropZone.innerHTML = originalContent; }, 2000);
     }
 });
@@ -8124,7 +8124,7 @@ document.getElementById('generateForm').addEventListener('submit',async(e)=>{
     
     // 開始生成，鎖定按鈕
     btn.disabled=true; 
-    btn.textContent=curLang==='zh'?'生成中...':'Generating...';
+    btn.textContent=curLang==='zh'?'생성 중...':'Generating...';
     resDiv.innerHTML='<div class="loading"><div class="spinner"></div></div>';
     
     const currentSeed = isSeedRandom ? -1 : parseInt(seedInput.value);
