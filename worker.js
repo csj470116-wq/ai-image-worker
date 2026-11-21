@@ -270,9 +270,9 @@ const CONFIG = {
         batch_generation: false, api_key_auth: false
       },
       models: [
+        { id: "flux-2-klein-4b", name: "FLUX.2 Klein 4B ⚡ (multi-ref, seed)", confirmed: true, category: "flux", description: "FLUX.2 Klein 4B, multi-ref (<=4), seed 지원, 무료", max_size: 1024, pricing: { image_price: 0, currency: "free" }, supports_seed: true, supports_reference_images: true, max_reference_images: 4 },
         { id: "flux-1-schnell", name: "FLUX.1 Schnell ⚡", confirmed: true, category: "flux", description: "12B FLUX Schnell, 초고속, 무료 (Apache-2.0)", max_size: 2048, pricing: { image_price: 0, currency: "free" } },
-        { id: "phoenix-1.0", name: "Phoenix 1.0 🎨 (seed-capable)", confirmed: true, category: "leonardo", description: "Leonardo Phoenix, seed 지원, 무료", max_size: 2048, pricing: { image_price: 0, currency: "free" }, supports_seed: true },
-        { id: "flux-2-klein-4b", name: "FLUX.2 Klein 4B ⚡ (multi-ref, seed)", confirmed: true, category: "flux", description: "FLUX.2 Klein 4B, multi-ref (<=4), seed 지원, 무료", max_size: 1024, pricing: { image_price: 0, currency: "free" }, supports_seed: true, supports_reference_images: true, max_reference_images: 4 }
+        { id: "phoenix-1.0", name: "Phoenix 1.0 🎨 (seed-capable)", confirmed: true, category: "leonardo", description: "Leonardo Phoenix, seed 지원, 무료", max_size: 2048, pricing: { image_price: 0, currency: "free" }, supports_seed: true }
       ],
       rate_limit: null,
       max_size: { width: 1024, height: 1024 }
@@ -4226,9 +4226,8 @@ async function handleInternalGenerate(request, env, ctx) {
     }
     
      
-     // Seed-aware model routing: Workers AI (FLUX.1 Schnell) rejects 'seed' (schema: additionalProperties=false).
 
-     // Seed-aware model routing: FLUX.1 Schnell rejects 'seed' (schema: additionalProperties=false).
+      // Seed-aware model routing: FLUX.2 Klein supports seed; FLUX.1 Schnell rejects it.
      // Route seed requests to Phoenix 1.0 (Workers AI, free, supports seed) for full reproducibility.
      if (seedValue !== -1) {
        const reqProvider = (body.provider || 'workersai').toLowerCase();
@@ -4246,7 +4245,7 @@ async function handleInternalGenerate(request, env, ctx) {
     // 准备基础选项
     options = { 
       provider: body.provider || null, 
-      model: body.model || "flux-1-schnell", 
+      model: body.model || "flux-2-klein-4b", 
       apiKey: request.headers.get('X-API-Key') || body.api_key || "",
       width: Math.min(Math.max(width, 256), 2048), 
       height: Math.min(Math.max(height, 256), 2048), 
@@ -6910,6 +6909,8 @@ function handleUI(request, env) {
 <html lang="ko">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#f59e0b">
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/upscaler@1.0.0/dist/browser/umd/upscaler.min.js"></script>
 <title>Flux AI Pro v${CONFIG.PROJECT_VERSION}</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎨</text></svg>">
 <style>
@@ -8322,6 +8323,12 @@ function displayResult(items){
     items.forEach(item=>{
         const d=document.createElement('div');d.className='gallery-item';
         d.innerHTML=\`<img src="\${item.image||item.url}" onclick="openModal(this.src)">\`;
+        const upBtn = document.createElement('button');
+        upBtn.className = 'upscale-btn';
+        upBtn.textContent = '🚀 2× 업스케일';
+        upBtn.setAttribute('data-src', item.image||item.url);
+        upBtn.style.cssText = 'width:100%;padding:6px;font-size:11px;border:none;background:rgba(139,92,246,0.2);color:#a78bfa;cursor:pointer;';
+        d.appendChild(upBtn);
         div.appendChild(d);
     });
     document.getElementById('results').innerHTML='';
@@ -8489,6 +8496,27 @@ document.addEventListener('DOMContentLoaded', function(){
     a.download = 'inpaint-result.png';
     a.click();
   });
+});
+
+// Free client-side 2x upscale via UpscalerJS (ESRGAN)
+let _upscaler = null;
+document.addEventListener('click', async function(e){
+  const btn = e.target.closest('.upscale-btn');
+  if(!btn) return;
+  const src = btn.getAttribute('data-src');
+  if(!src) return;
+  btn.disabled = true; btn.textContent = '⏳ 업스케일 중...';
+  try {
+    if(typeof Upscaler === 'undefined') throw new Error('업스케일러 로드 실패');
+    if(!_upscaler) _upscaler = new Upscaler({ model: 'esrgan-slim' });
+    const out = await _upscaler.upscale(src);
+    btn.parentElement.querySelector('img').src = out;
+    btn.setAttribute('data-src', out);
+    btn.textContent = '✅ 2× 완료';
+    openModal(out);
+  } catch(err) {
+    btn.textContent = '❌ 실패: ' + (err.message||'알 수 없는 오류');
+  }
 });
 
 window.onload=()=>{
