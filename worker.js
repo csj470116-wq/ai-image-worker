@@ -6594,7 +6594,13 @@ async function handleMCP(request, env, ctx) {
         const internalReq = new Request('http://localhost/_internal/generate', { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'MCP-Client' }, body: JSON.stringify({ prompt: args.prompt, width: args.width || 512, height: args.height || 512, seed: args.seed, style: args.style || 'none' }) });
         const resp = await handleInternalGenerate(internalReq, env, ctx);
         const buf = await resp.arrayBuffer();
-        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const u8 = new Uint8Array(buf);
+        let bin = '';
+        const chunk = 0x8000;
+        for (let i = 0; i < u8.length; i += chunk) {
+          bin += String.fromCharCode.apply(null, u8.subarray(i, i + chunk));
+        }
+        const b64 = btoa(bin);
         const ct = resp.headers.get('Content-Type') || 'image/jpeg';
         return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: { content: [{ type: 'image', data: b64, mimeType: ct }, { type: 'text', text: 'Generated image (' + buf.byteLength + ' bytes)' }] } }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
       } catch (e) {
