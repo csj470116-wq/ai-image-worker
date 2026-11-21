@@ -2125,10 +2125,11 @@ class SecurityChecker {
       };
     }
     
-    // 检查恶意关键词
+    // 检查恶意关键词 (opt-in adult mode bypasses the 'adult' keyword screening only)
     const lowerPrompt = prompt.toLowerCase();
     for (const keyword of this.maliciousKeywords) {
       if (lowerPrompt.includes(keyword.toLowerCase())) {
+        if (options && options.nsfw === true && /adult|nsfw|mature|nude/i.test(keyword)) continue;
         return {
           allowed: false,
           reason: `Suspicious content detected: ${keyword}`,
@@ -4146,7 +4147,8 @@ async function handleInternalGenerate(request, env, ctx) {
     const securityCheck = await securityChecker.comprehensiveSecurityCheck(request, clientIP, prompt, {
       model: body.model,
       seed: body.seed,
-      referenceImages: body.reference_images
+      referenceImages: body.reference_images,
+      nsfw: body.nsfw === true
     });
     
     if (!securityCheck.allowed) {
@@ -4365,6 +4367,18 @@ async function handleInternalGenerate(request, env, ctx) {
       });
     }
     
+    // === OPT-IN ADULT MODE: NSFW flag routes to free external generators (SFW default unchanged) ===
+    if (options.nsfw === true) {
+      logger.info('Adult mode requested -> external generators');
+      try {
+        const adult = await generateAdultImage(prompt, options.width || 1024, options.height || 1024);
+        return new Response(adult.buffer, { headers: { 'Content-Type': adult.contentType, 'X-Generation-Mode': 'adult-' + adult.provider, ...corsHeaders() } });
+      } catch (ae) {
+        logger.error('Adult generation failed', { error: ae.message });
+        throw new Error('성인 모드 생성 실패: ' + ae.message);
+      }
+    }
+
     const router = new MultiProviderRouter({}, env);
     const results = await router.generate(prompt, options, logger);
     const duration = Date.now() - startTime;
@@ -6815,6 +6829,53 @@ async function handleHistory(request, env) {
   }
 }
 
+// ====== Adult-mode generators (opt-in only; consensual fictional adults) ======
+let ADULT_LAST_REQUEST = 0; // module-level, for Pollinations Classic 45s/IP throttle
+
+async function generateAdultImage(prompt, width, height) {
+  const q = encodeURIComponent(prompt);
+  // Try Pollinations Classic (keyless, free, safe=false, 1 image / 45s per IP)
+  try {
+    const waitMs = Math.max(0, 45000 - (Date.now() - ADULT_LAST_REQUEST));
+    if (waitMs > 0) await sleepForRetry(waitMs);
+    const url = 'https://image.pollinations.ai/prompt/' + q + '?width=' + width + '&height=' + height + '&seed=' + Math.floor(Math.random()*1000000) + '&safe=false&nologo=true&private=true';
+    const resp = await fetchWithTimeout(url, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0' } }, 120000);
+    if (resp.ok) {
+      const ct = resp.headers.get('content-type') || 'image/jpeg';
+      const buf = await resp.arrayBuffer();
+      ADULT_LAST_REQUEST = Date.now();
+      return { buffer: buf, contentType: ct, provider: 'pollinations-classic' };
+    }
+    ADULT_LAST_REQUEST = Date.now();
+  } catch (e) { console.error('[Adult] Pollinations failed:', e.message); }
+
+  // Fallback: Hugging Face free Pony Diffusion Space (Gradio API, 2-step SSE)
+  try {
+    const space = 'https://artificialguybr-ponydiffusion-xl-free-demo.hf.space';
+    const callBody = { data: [prompt, 'low quality, blurry, worst quality', 0, width, height, 7, 20, 'Euler a', '1024 x 1024', false, 0, 1] };
+    const cr = await fetchWithTimeout(space + '/gradio_api/call/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(callBody) }, 120000);
+    if (cr.ok) {
+      const cj = await cr.json();
+      const eid = cj.event_id;
+      if (eid) {
+        const sr = await fetchWithTimeout(space + '/gradio_api/call/run/' + encodeURIComponent(eid), { method: 'GET' }, 180000);
+        const txt = await sr.text();
+        const m = txt.match(/data:\s*(\{[^\n]*\}|\[[^\n]*\])/);
+        if (m) {
+          const arr = JSON.parse(m[1]);
+          const img = Array.isArray(arr) ? arr[0] : arr;
+          const imgUrl = (img && (img.url || img.path)) || (typeof img === 'string' ? img : null);
+          if (imgUrl) {
+            const ir = await fetchWithTimeout(imgUrl.startsWith('http') ? imgUrl : (space + '/gradio_api/file=' + imgUrl), {}, 120000);
+            if (ir.ok) return { buffer: await ir.arrayBuffer(), contentType: 'image/png', provider: 'hf-pony' };
+          }
+        }
+      }
+    }
+  } catch (e) { console.error('[Adult] HF Pony failed:', e.message); }
+  throw new Error('Adult-mode generation failed (both providers unavailable)');
+}
+
 async function handleHealthCheck(request, env) {
   const startTime = Date.now();
   
@@ -7134,7 +7195,7 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
 
 <div class="form-group" id="nsfwGroup" style="display:none; align-items:center; justify-content:space-between; background:rgba(239, 68, 68, 0.1); padding:10px; border-radius:8px; border:1px solid rgba(239, 68, 68, 0.3);">
     <div>
-        <label for="nsfwToggle" style="margin:0; cursor:pointer; color:#f87171;">🔞 NSFW 필터 비활성화</label>
+        <label for="nsfwToggle" style="margin:0; cursor:pointer; color:#f87171;">🔞 성인 모드 (NSFW · 무료 외부 생성기)</label>
         <div style="font-size:11px; color:#fca5a5; margin-top:2px;">이 옵션을 활성화하면 성인 콘텐츠 생성이 허용됩니다 (Infip 전용)</div>
     </div>
     <input type="checkbox" id="nsfwToggle" style="width:20px; height:20px; cursor:pointer;">
@@ -7856,17 +7917,14 @@ function updateModelOptions() {
         apiKeyGroup.style.display = 'none';
     }
     
-    // Logic: Show NSFW Toggle only for Infip
+    // Adult-mode toggle always visible (opt-in, default OFF). SFW is the main mode.
     const nsfwGroup = document.getElementById('nsfwGroup');
     const batchGroup = document.getElementById('batchGroup');
-    
+    nsfwGroup.style.display = 'flex';
     if (p === 'infip') {
-        nsfwGroup.style.display = 'flex';
         batchGroup.style.display = 'block';
     } else {
-        nsfwGroup.style.display = 'none';
         batchGroup.style.display = 'none';
-        document.getElementById('nsfwToggle').checked = false;
         document.getElementById('batchSize').value = '1';
     }
 
