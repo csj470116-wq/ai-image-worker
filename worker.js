@@ -6836,10 +6836,14 @@ async function handleHistory(request, env) {
 let ADULT_LAST_REQUEST = 0; // module-level, for Pollinations Classic 45s/IP throttle
 
 async function generateAdultImage(prompt, width, height, ctx) {
-  const q = encodeURIComponent(prompt);
+  // Auto-enhance prompt for flawless face, hands and body (invisible to user, added to all adult generations)
+  const QUALITY_SUFFIX = ', perfect anatomy, beautiful symmetrical face, detailed eyes, natural hands, five fingers, detailed skin texture, elegant proportions, professional photography, masterpiece, best quality, sharp focus';
+  const enhancedPrompt = prompt + QUALITY_SUFFIX;
+  const NEGATIVE = 'bad hands, extra fingers, missing fingers, fused fingers, deformed hands, mutated fingers, bad anatomy, disproportionate body, asymmetrical face, deformed eyes, blurry face, low quality, worst quality, watermark, text, signature';
+  const q = encodeURIComponent(enhancedPrompt);
   // 1) Pollinations Classic (keyless, free, safe=false). No blocking 45s wait; if rate-limited, signal retry.
   try {
-    const url = 'https://image.pollinations.ai/prompt/' + q + '?width=' + width + '&height=' + height + '&seed=' + Math.floor(Math.random()*1000000) + '&safe=false&nologo=true&private=true';
+    const url = 'https://image.pollinations.ai/prompt/' + q + '?width=' + width + '&height=' + height + '&seed=' + Math.floor(Math.random()*1000000) + '&safe=false&nologo=true&private=true&negative=' + encodeURIComponent(NEGATIVE);
     const resp = await fetchWithTimeout(url, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0' } }, 120000);
     if (resp.ok) {
       const ct = resp.headers.get('content-type') || 'image/jpeg';
@@ -6862,8 +6866,8 @@ async function generateAdultImage(prompt, width, height, ctx) {
   try {
     const space = 'https://artificialguybr-ponydiffusion-xl-free-demo.hf.space';
     const callBody = { data: [{
-      prompt: prompt,
-      negative_prompt: 'low quality, blurry, worst quality',
+      prompt: enhancedPrompt,
+      negative_prompt: NEGATIVE,
       seed: Math.floor(Math.random()*1000000),
       custom_width: width,
       custom_height: height,
