@@ -4374,7 +4374,7 @@ async function handleInternalGenerate(request, env, ctx) {
     if (options.nsfw === true) {
       logger.info('Adult mode requested -> external generators');
       try {
-        const adult = await generateAdultImage(prompt, options.width || 1024, options.height || 1024, ctx);
+        const adult = await generateAdultImage(prompt, options.width || 1024, options.height || 1024, ctx, (body.byok_key || body.api_key || ''));
         if (adult && adult.retry) {
           return new Response(JSON.stringify({ success: false, retry: true, retryAfter: adult.retryAfter, message: adult.message }), { status: 202, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
         }
@@ -6892,18 +6892,19 @@ async function callHFSpace(space, prompt, width, height, negative) {
   return { buffer: await ir.arrayBuffer(), contentType: 'image/png', provider: space.sub };
 }
 
-async function generateAdultImage(prompt, width, height, ctx) {
+async function generateAdultImage(prompt, width, height, ctx, userToken) {
   // Auto-enhance for face/hands/body (invisible to user)
   const QUALITY_SUFFIX = ', perfect anatomy, beautiful symmetrical face, detailed eyes, natural hands, five fingers, detailed skin texture, elegant proportions, professional photography, masterpiece, best quality, sharp focus';
   const NEGATIVE = 'bad hands, extra fingers, missing fingers, fused fingers, deformed hands, mutated fingers, bad anatomy, disproportionate body, asymmetrical face, deformed eyes, blurry face, low quality, worst quality, watermark, text, signature';
   const enhancedPrompt = prompt + QUALITY_SUFFIX;
 
   // 1) Replicate FLUX-dev (high quality, priority) (free limited runs) - if token configured
-  if (typeof REPLICATE_TOKEN !== 'undefined' && REPLICATE_TOKEN) {
+  const effectiveReplicateToken = (userToken && userToken.trim()) ? userToken.trim() : REPLICATE_TOKEN;
+  if (effectiveReplicateToken) {
     try {
       const rr = await fetchWithTimeout('https://api.replicate.com/v1/models/black-forest-labs/flux-dev/predictions', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + REPLICATE_TOKEN, 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+        headers: { 'Authorization': 'Bearer ' + effectiveReplicateToken, 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
         body: JSON.stringify({ input: { prompt: enhancedPrompt, width: Math.min(width,1024), height: Math.min(height,1024), num_outputs: 1, output_format: 'webp' } })
       }, 120000);
       if (rr.ok) {
@@ -6911,7 +6912,7 @@ async function generateAdultImage(prompt, width, height, ctx) {
         for (let i = 0; i < 30 && (!pred.output || pred.status !== 'succeeded'); i++) {
           await sleepForRetry(2000);
           if (!pred.urls || !pred.urls.get) break;
-          const pr = await fetchWithTimeout(pred.urls.get, { headers: { 'Authorization': 'Bearer ' + REPLICATE_TOKEN, 'User-Agent': 'Mozilla/5.0' } }, 30000);
+          const pr = await fetchWithTimeout(pred.urls.get, { headers: { 'Authorization': 'Bearer ' + effectiveReplicateToken, 'User-Agent': 'Mozilla/5.0' } }, 30000);
           pred = await pr.json();
           if (pred.status === 'failed' || pred.status === 'canceled') break;
         }
@@ -7256,11 +7257,13 @@ select{background-color:#1e293b!important;color:#e2e8f0!important;cursor:pointer
         <option value="infip">Ghostbot (Infip) 🌟</option>
     </select>
 </div>
-<div class="form-group" id="apiKeyGroup" style="display:none; background:rgba(245, 158, 11, 0.1); padding:10px; border-radius:8px; border:1px solid rgba(245, 158, 11, 0.3);">
-    <label>API Key <span style="font-weight:normal;opacity:0.7">(Stored locally)</span></label>
-    <input type="password" id="apiKey" placeholder="Paste your API Key here">
+<div class="form-group" id="apiKeyGroup" style="background:rgba(245, 158, 11, 0.1); padding:10px; border-radius:8px; border:1px solid rgba(245, 158, 11, 0.3);">
+    <label>🔑 BYOK — 내 API 키 (무료·고품질, 서버에 저장 안 됨)</label>
+    <input type="password" id="apiKey" placeholder="Replicate 또는 HF 토큰 붙여넣기" style="width:100%;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(0,0,0,0.3);color:#fff;">
     <div style="font-size:11px;color:#ccc;margin-top:6px">
-        Get free key from <a href="https://infip.pro/api-keys" target="_blank" style="color:#f59e0b;text-decoration:underline">infip.pro/api-keys</a>
+        무료 키: <a href="https://replicate.com/account/api-tokens" target="_blank" style="color:#f59e0b;text-decoration:underline">Replicate</a> ·
+        <a href="https://huggingface.co/settings/tokens" target="_blank" style="color:#f59e0b;text-decoration:underline">Hugging Face</a>
+        <span id="byokStatus" style="margin-left:8px;"></span>
     </div>
 </div>
 
@@ -7975,7 +7978,7 @@ function updateModelOptions() {
     // Logic: Show API Key input only if required AND not provided by server
     if(config.requires_key && config.auth_mode === 'bearer') {
         if (config.has_server_key) {
-            apiKeyGroup.style.display = 'none';
+            apiKeyGroup.style.display = 'block';
         } else {
             apiKeyGroup.style.display = 'block';
             let storedKey = '';
@@ -7985,7 +7988,7 @@ function updateModelOptions() {
             apiKeyInput.placeholder = "Paste your API Key here";
         }
     } else {
-        apiKeyGroup.style.display = 'none';
+        apiKeyGroup.style.display = 'block';
     }
     
     // Adult-mode toggle always visible (opt-in, default OFF). SFW is the main mode.
@@ -8383,6 +8386,7 @@ document.getElementById('generateForm').addEventListener('submit',async(e)=>{
                 reference_images:document.getElementById('referenceImages').value.split(',').filter(u=>u.trim()),
                 provider: document.getElementById('provider').value,
                 api_key: document.getElementById('apiKey').value,
+                byok_key: document.getElementById('apiKey').value,
                 nsfw: isNSFW,
                 n: batchSize, auto_hd: false
             })
