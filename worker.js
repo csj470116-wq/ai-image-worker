@@ -3555,6 +3555,21 @@ async function handleUpload(request, env) {
     const IMGBB_API_KEY = (env && env.IMGBB_API_KEY) || '8245f772dd33870730fab74e7e236df2'; // 環境変数優先，回退測試用 API Key
     
     // 将文件转换为 Base64（使用分块处理避免堆叠溢出）
+    // 강화: 확장자 및 실제 이미지 시그니처 검증
+    const ALLOWED_IMAGE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (!ALLOWED_IMAGE_EXT.includes(ext)) {
+      return new Response(JSON.stringify({ error: 'Invalid file type. Only JPG, PNG, GIF, WEBP allowed.' }), { status: 400, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+    const checkBytes = new Uint8Array(await file.arrayBuffer());
+    const isJpeg = checkBytes[0] === 0xFF && checkBytes[1] === 0xD8 && checkBytes[2] === 0xFF;
+    const isPng = checkBytes[0] === 0x89 && checkBytes[1] === 0x50 && checkBytes[2] === 0x4E && checkBytes[3] === 0x47 && checkBytes[4] === 0x0D && checkBytes[5] === 0x0A && checkBytes[6] === 0x1A && checkBytes[7] === 0x0A;
+    const isGif = checkBytes[0] === 0x47 && checkBytes[1] === 0x49 && checkBytes[2] === 0x46 && checkBytes[3] >= 0x38 && checkBytes[3] <= 0x39 && checkBytes[4] === 0x61;
+    const isWebp = checkBytes[0] === 0x52 && checkBytes[1] === 0x49 && checkBytes[2] === 0x46 && checkBytes[3] === 0x46 && checkBytes[8] === 0x57 && checkBytes[9] === 0x45 && checkBytes[10] === 0x42 && checkBytes[11] === 0x50;
+    if (!(isJpeg || isPng || isGif || isWebp)) {
+      return new Response(JSON.stringify({ error: 'Invalid image file content.' }), { status: 400, headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+    }
+
     const arrayBuffer = await file.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
     let binary = '';
