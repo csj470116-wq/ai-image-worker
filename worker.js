@@ -6835,75 +6835,109 @@ async function handleHistory(request, env) {
 // ====== Adult-mode generators (opt-in only; consensual fictional adults) ======
 let ADULT_LAST_REQUEST = 0; // module-level, for Pollinations Classic 45s/IP throttle
 
+// ====== Adult-mode generators (opt-in only; consensual fictional adults) ======
+// Provider chain: HF Chroma -> HF Illustrious -> Replicate FLUX-dev -> Pollinations sana (last resort)
+const HF_SPACES = [
+  { sub: 'gokaygokay-Chroma', endpoint: 'generate_image',
+    build: (p, w, h, neg) => [p, neg, Math.min(w,1024), Math.min(h,1024), 20, 4, Math.floor(Math.random()*1000000)] },
+  { sub: 'lehehroi-Illustrious130', endpoint: 'infer',
+    build: (p, w, h, neg) => [p, neg, Math.floor(Math.random()*1000000), false, Math.min(w,1024), Math.min(h,1024), 7.0, 20] },
+  { sub: 'silveroxides-Chroma-Extra', endpoint: 'generate_image',
+    build: (p, w, h, neg) => [p, neg, Math.min(w,1024), Math.min(h,1024), 12, 1, Math.floor(Math.random()*1000000)] }
+];
+
+// Fetch image from an HF Space via Gradio SSE API (verified protocol)
+async function callHFSpace(space, prompt, width, height, negative) {
+  const base = 'https://' + space.sub + '.hf.space';
+  const payload = { data: space.build(prompt, width, height, negative) };
+  const headers = { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' };
+  if (typeof HF_TOKEN !== 'undefined' && HF_TOKEN) headers['Authorization'] = 'Bearer ' + HF_TOKEN;
+  const cr = await fetchWithTimeout(base + '/gradio_api/call/' + space.endpoint,
+    { method: 'POST', headers: headers, body: JSON.stringify(payload) }, 120000);
+  if (!cr.ok) throw new Error('HF call ' + cr.status);
+  const cj = await cr.json();
+  const eid = cj.event_id;
+  if (!eid) throw new Error('HF no event_id');
+  const sr = await fetchWithTimeout(base + '/gradio_api/call/' + space.endpoint + '/' + encodeURIComponent(eid),
+    { method: 'GET', headers: headers }, 180000);
+  const txt = await sr.text();
+  if (txt.includes('event: error')) {
+    const q = /quota|limit|runs limit/i.test(txt) ? 'HF 무료 quota 소진 (2분/일)' : 'HF event:error';
+    throw new Error(q);
+  }
+  // Gradio SSE: find all `data:` lines, parse the one containing an image url/path
+  let obj = null;
+  const dataLines = txt.split('\n').filter(function(l){ return l.indexOf('data:') === 0; });
+  for (let i = dataLines.length - 1; i >= 0; i--) {
+    const raw = dataLines[i].slice(5).trim();
+    if (!raw || raw === 'null') continue;
+    try {
+      const parsed = JSON.parse(raw);
+      const cand = Array.isArray(parsed) ? parsed[0] : parsed;
+      if (cand && (cand.url || cand.path || typeof cand === 'string')) { obj = cand; break; }
+    } catch (pe) {}
+  }
+  if (!obj) throw new Error('HF no data');
+  const url = (obj && (obj.url || obj.path)) || (typeof obj === 'string' ? obj : null);
+  if (!url) throw new Error('HF no image url');
+  const fullUrl = url.startsWith('http') ? url : (base + '/gradio_api/file=' + url.replace(/^\//, ''));
+  const ir = await fetchWithTimeout(fullUrl, { headers: headers }, 120000);
+  if (!ir.ok) throw new Error('HF image fetch ' + ir.status);
+  return { buffer: await ir.arrayBuffer(), contentType: 'image/png', provider: space.sub };
+}
+
 async function generateAdultImage(prompt, width, height, ctx) {
-  // Auto-enhance prompt for flawless face, hands and body (invisible to user, added to all adult generations)
+  // Auto-enhance for face/hands/body (invisible to user)
   const QUALITY_SUFFIX = ', perfect anatomy, beautiful symmetrical face, detailed eyes, natural hands, five fingers, detailed skin texture, elegant proportions, professional photography, masterpiece, best quality, sharp focus';
-  const enhancedPrompt = prompt + QUALITY_SUFFIX;
   const NEGATIVE = 'bad hands, extra fingers, missing fingers, fused fingers, deformed hands, mutated fingers, bad anatomy, disproportionate body, asymmetrical face, deformed eyes, blurry face, low quality, worst quality, watermark, text, signature';
-  const q = encodeURIComponent(enhancedPrompt);
-  // 1) Pollinations Classic (keyless, free, safe=false). No blocking 45s wait; if rate-limited, signal retry.
+  const enhancedPrompt = prompt + QUALITY_SUFFIX;
+
+  // 1) HF Spaces (free, high-quality anatomy) - try each
+  for (const space of HF_SPACES) {
+    try {
+      const r = await callHFSpace(space, enhancedPrompt, width, height, NEGATIVE);
+      return r;
+    } catch (e) { console.warn('[Adult] ' + space.sub + ' failed: ' + e.message); }
+  }
+
+  // 2) Replicate FLUX-dev (free limited runs) - if token configured
+  if (typeof REPLICATE_TOKEN !== 'undefined' && REPLICATE_TOKEN) {
+    try {
+      const rr = await fetchWithTimeout('https://api.replicate.com/v1/models/black-forest-labs/flux-dev/predictions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + REPLICATE_TOKEN, 'Content-Type': 'application/json', 'Prefer': 'wait' },
+        body: JSON.stringify({ input: { prompt: enhancedPrompt, width: Math.min(width,1024), height: Math.min(height,1024), num_outputs: 1, output_format: 'webp' } })
+      }, 120000);
+      if (rr.ok) {
+        let pred = await rr.json();
+        for (let i = 0; i < 20 && (!pred.output || pred.status !== 'succeeded'); i++) {
+          await sleepForRetry(2000);
+          const pr = await fetchWithTimeout(pred.urls.get, { headers: { 'Authorization': 'Bearer ' + REPLICATE_TOKEN } }, 30000);
+          pred = await pr.json();
+          if (pred.status === 'failed') break;
+        }
+        const outUrl = Array.isArray(pred.output) ? pred.output[0] : pred.output;
+        if (outUrl) {
+          const ir = await fetchWithTimeout(outUrl, {}, 120000);
+          if (ir.ok) return { buffer: await ir.arrayBuffer(), contentType: 'image/webp', provider: 'replicate-flux-dev' };
+        }
+      }
+    } catch (e) { console.warn('[Adult] Replicate failed: ' + e.message); }
+  }
+
+  // 3) Pollinations sana (last resort, low quality)
   try {
+    const q = encodeURIComponent(enhancedPrompt);
     const url = 'https://image.pollinations.ai/prompt/' + q + '?width=' + width + '&height=' + height + '&seed=' + Math.floor(Math.random()*1000000) + '&safe=false&nologo=true&private=true&negative=' + encodeURIComponent(NEGATIVE);
     const resp = await fetchWithTimeout(url, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0' } }, 120000);
-    if (resp.ok) {
-      const ct = resp.headers.get('content-type') || 'image/jpeg';
-      return { buffer: await resp.arrayBuffer(), contentType: ct, provider: 'pollinations-classic' };
-    }
-    // 402 FREE_LIMIT / 503 capacity -> schedule background retry
+    if (resp.ok) return { buffer: await resp.arrayBuffer(), contentType: resp.headers.get('content-type') || 'image/jpeg', provider: 'pollinations-sana' };
     if (resp.status === 402 || resp.status === 503) {
-      if (ctx && ctx.waitUntil) {
-        ctx.waitUntil((async () => {
-          await sleepForRetry(46000);
-          try { await fetchWithTimeout(url, { method:'GET', headers:{'User-Agent':'Mozilla/5.0'} }, 120000); } catch(e) {}
-        })());
-      }
+      if (ctx && ctx.waitUntil) ctx.waitUntil((async () => { await sleepForRetry(46000); try { await fetchWithTimeout(url, {}, 120000); } catch(e) {} })());
       const retryAfter = resp.headers.get('Retry-After') || '45';
       return { retry: true, retryAfter: retryAfter, message: '무료 생성 한도 대기 중 (' + retryAfter + '초). 잠시 후 다시 시도하세요.' };
     }
   } catch (e) { console.error('[Adult] Pollinations failed:', e.message); }
-
-  // 2) HF Pony free Space (correct named-params payload per gradio_api/openapi.json)
-  try {
-    const space = 'https://artificialguybr-ponydiffusion-xl-free-demo.hf.space';
-    const callBody = { data: [{
-      prompt: enhancedPrompt,
-      negative_prompt: NEGATIVE,
-      seed: Math.floor(Math.random()*1000000),
-      custom_width: width,
-      custom_height: height,
-      guidance_scale: 7,
-      num_inference_steps: 20,
-      sampler: 'Euler a',
-      aspect_ratio_selector: 'Custom',
-      use_upscaler: false,
-      upscaler_strength: 0,
-      upscale_by: 1
-    }] };
-    const cr = await fetchWithTimeout(space + '/gradio_api/call/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(callBody) }, 120000);
-    if (cr.ok) {
-      const cj = await cr.json();
-      const eid = cj.event_id;
-      if (eid) {
-        const sr = await fetchWithTimeout(space + '/gradio_api/call/run/' + encodeURIComponent(eid), { method: 'GET' }, 180000);
-        const txt = await sr.text();
-        if (!txt.includes('event: error')) {
-          const m = txt.match(/data:\s*(\{[^\n]*\}|\[[^\n]*\])/);
-          if (m) {
-            const arr = JSON.parse(m[1]);
-            const img = Array.isArray(arr) ? arr[0] : arr;
-            const imgUrl = (img && (img.url || img.path)) || (typeof img === 'string' ? img : null);
-            if (imgUrl) {
-              const ir = await fetchWithTimeout(imgUrl.startsWith('http') ? imgUrl : (space + '/gradio_api/file=' + imgUrl), {}, 120000);
-              if (ir.ok) return { buffer: await ir.arrayBuffer(), contentType: 'image/png', provider: 'hf-pony' };
-            }
-          }
-        } else {
-          console.warn('[Adult] HF Pony Space returned event:error (quota/Space issue)');
-        }
-      }
-    }
-  } catch (e) { console.error('[Adult] HF Pony failed:', e.message); }
-  throw new Error('Adult-mode generation failed (both providers unavailable)');
+  throw new Error('Adult-mode generation failed (all providers unavailable)');
 }
 
 async function handleHealthCheck(request, env) {
